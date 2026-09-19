@@ -28,7 +28,7 @@ verification/reporting
 - Evaluates whether issues should be automated
 - Manages Devin API sessions
 - Tracks status and results
-- TBD - implementation language and framework
+- **Implementation**: TypeScript/Node.js with Fastify framework
 
 ### Devin API
 
@@ -50,12 +50,11 @@ verification/reporting
 
 ## Persistence
 
-The orchestrator will need to persist:
-
+The orchestrator persists:
 - GitHub event metadata
 - Devin session IDs and status
 - Mapping between issues and sessions
-- TBD - database technology
+- **Technology**: SQLite with Drizzle ORM and better-sqlite3 driver
 
 ## Architectural Constraints
 
@@ -64,18 +63,26 @@ The orchestrator will need to persist:
 - Must not modify the Apache Superset fork directly (only via Devin-generated PRs)
 - Must preserve evidence for the take-home evaluation
 
-## TBD - Technology Choices
+## Technology Choices
 
-The following have not been selected yet:
+The following have been selected:
 
-- Implementation language (Python, TypeScript, etc.)
-- Web framework (if needed)
-- Database technology
-- Message queue (if needed)
-- Deployment method
+- **Implementation language**: TypeScript 6.0.3
+- **Runtime**: Node.js 24 LTS (24.21.0)
+- **Web framework**: Fastify 5
+- **Database technology**: SQLite with Drizzle ORM and better-sqlite3
+- **Package manager**: pnpm 12.4.2
+- **Testing framework**: Vitest 5
+- **Linting**: ESLint 10 with typescript-eslint flat config
+- **Formatting**: Prettier
+- **Deployment method**: Docker with Node 24.21.0 Alpine base image
+
+### TBD (Still to be determined)
+
 - GitHub integration method (webhook vs polling)
 - Authentication method for Devin API
 - Observability stack (logging, metrics)
+- Message queue (if needed for scaling)
 
 ## Future Considerations (Not for Initial Implementation)
 
