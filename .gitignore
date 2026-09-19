@@ -43,5 +43,6 @@ Thumbs.db
 *.tmp
 .cache/
 
-# Devin CLI local overrides
-.devin/config.local.json
+# Devin CLI files
+.devin/*
+!.devin/config.json
