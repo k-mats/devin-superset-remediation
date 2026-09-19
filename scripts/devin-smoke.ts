@@ -61,17 +61,18 @@ async function main(): Promise<number> {
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let current = session;
-  while (!isTerminal(current) && Date.now() < deadline) {
+  // Terminal state only counts if it was observed before the deadline.
+  let terminalByDeadline = isTerminal(current) && Date.now() < deadline;
+  while (!terminalByDeadline && Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     await sleep(Math.min(POLL_INTERVAL_MS, remaining));
     current = await client.getSession(session.session_id);
     console.error(`status: ${current.status} (detail: ${current.status_detail ?? 'n/a'})`);
+    terminalByDeadline = isTerminal(current) && Date.now() < deadline;
   }
 
-  // Record deadline expiry before the final fetch so a session that finishes
-  // during that last request cannot turn a timeout into a pass.
-  const timedOut = !isTerminal(current) && Date.now() >= deadline;
+  const timedOut = !terminalByDeadline;
 
   // Always do one final fetch for the freshest state.
   current = await client.getSession(session.session_id);
