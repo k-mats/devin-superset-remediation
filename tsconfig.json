@@ -30,6 +30,6 @@
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true
   },
-  "include": ["src/**/*", "tests/**/*", "vitest.config.ts", "drizzle.config.ts"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "drizzle.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -12,7 +12,8 @@ const configSchema = z.object({
   githubRepoOwner: z.string().optional(),
   githubRepoName: z.string().optional(),
   devinApiKey: z.string().optional(),
-  devinApiUrl: z.string().optional(),
+  devinOrgId: z.string().optional(),
+  devinApiUrl: z.string().default('https://api.devin.ai/v3'),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -29,6 +30,7 @@ export function loadConfig(): Config {
     githubRepoOwner: process.env['GITHUB_REPO_OWNER'],
     githubRepoName: process.env['GITHUB_REPO_NAME'],
     devinApiKey: process.env['DEVIN_API_KEY'],
+    devinOrgId: process.env['DEVIN_ORG_ID'],
     devinApiUrl: process.env['DEVIN_API_URL'],
   });
 }
