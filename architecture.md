@@ -51,6 +51,7 @@ verification/reporting
 ## Persistence
 
 The orchestrator persists:
+
 - GitHub event metadata
 - Devin session IDs and status
 - Mapping between issues and sessions

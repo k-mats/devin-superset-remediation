@@ -7,14 +7,14 @@ const POLL_TIMEOUT_MS = Number(process.env['SMOKE_POLL_TIMEOUT_MS'] ?? 5 * 60 * 
 const POLL_INTERVAL_MS = Number(process.env['SMOKE_POLL_INTERVAL_MS'] ?? 10 * 1000);
 const OUTPUT_PATH = process.env['SMOKE_OUTPUT_PATH'];
 
-// Terminal statuses per the v3 OpenAPI spec enum:
-// new, claimed, running, exit, error, suspended, resuming
+// v3 `status` enum: new, claimed, running, exit, error, suspended, resuming.
+// A running session that is waiting on the user has finished its turn, so stop polling there too.
 const NON_TERMINAL_STATUSES = new Set(['new', 'claimed', 'running', 'resuming']);
-const NON_TERMINAL_STATUS_DETAILS = new Set(['starting', 'pending']);
+const IDLE_STATUS_DETAILS = new Set(['waiting_for_user', 'waiting_for_approval', 'finished']);
 
 function isTerminal(session: SessionResponse): boolean {
-  if (session.status_detail && NON_TERMINAL_STATUS_DETAILS.has(session.status_detail)) {
-    return false;
+  if (session.status_detail && IDLE_STATUS_DETAILS.has(session.status_detail)) {
+    return true;
   }
   return !NON_TERMINAL_STATUSES.has(session.status);
 }

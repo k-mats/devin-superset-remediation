@@ -65,7 +65,7 @@ export class DevinClient {
     this.fetchFn = opts.fetchFn ?? globalThis.fetch;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request(method: string, path: string, body?: unknown): Promise<SessionResponse> {
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
       method,
       headers: {
@@ -87,33 +87,27 @@ export class DevinClient {
         `Devin API ${method} ${path} returned an unexpected response: ${parsed.error.message}`
       );
     }
-    return parsed.data as T;
+    return parsed.data;
   }
 
   createSession(req: CreateSessionRequest): Promise<SessionResponse> {
-    return this.request<SessionResponse>('POST', `/organizations/${this.orgId}/sessions`, req);
+    return this.request('POST', `/organizations/${this.orgId}/sessions`, req);
   }
 
   getSession(sessionId: string): Promise<SessionResponse> {
-    return this.request<SessionResponse>(
-      'GET',
-      `/organizations/${this.orgId}/sessions/${sessionId}`
-    );
+    return this.request('GET', `/organizations/${this.orgId}/sessions/${sessionId}`);
   }
 }
 
 export function createDevinClientFromConfig(config: Config): DevinClient {
+  const { devinApiKey: apiKey, devinOrgId: orgId, devinApiUrl: baseUrl } = config;
   const missing: string[] = [];
-  if (!config.devinApiKey) missing.push('DEVIN_API_KEY');
-  if (!config.devinOrgId) missing.push('DEVIN_ORG_ID');
-  if (missing.length > 0) {
+  if (!apiKey) missing.push('DEVIN_API_KEY');
+  if (!orgId) missing.push('DEVIN_ORG_ID');
+  if (!apiKey || !orgId) {
     throw new Error(
       `Cannot create Devin API client: missing required configuration ${missing.join(', ')}`
     );
   }
-  return new DevinClient({
-    apiKey: config.devinApiKey as string,
-    orgId: config.devinOrgId as string,
-    baseUrl: config.devinApiUrl,
-  });
+  return new DevinClient({ apiKey, orgId, baseUrl });
 }
