@@ -6,15 +6,6 @@ const configSchema = z.object({
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
   databasePath: z.string().default('./data/orchestrator.db'),
   logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
-  corsAllowedOrigins: z
-    .string()
-    .optional()
-    .transform((value) =>
-      (value ?? '')
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter((origin) => origin.length > 0)
-    ),
   // Future configurations
   githubWebhookSecret: z.string().optional(),
   githubToken: z.string().optional(),
@@ -33,7 +24,6 @@ export function loadConfig(): Config {
     nodeEnv: process.env['NODE_ENV'],
     databasePath: process.env['DATABASE_PATH'],
     logLevel: process.env['LOG_LEVEL'],
-    corsAllowedOrigins: process.env['CORS_ALLOWED_ORIGINS'],
     githubWebhookSecret: process.env['GITHUB_WEBHOOK_SECRET'],
     githubToken: process.env['GITHUB_TOKEN'],
     githubRepoOwner: process.env['GITHUB_REPO_OWNER'],

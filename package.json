@@ -22,7 +22,6 @@
   "packageManager": "pnpm@12.4.2",
   "type": "module",
   "dependencies": {
-    "@fastify/cors": "^11.3.0",
     "better-sqlite3": "^13.0.3",
     "dotenv": "^18.0.0",
     "drizzle-orm": "^0.45.2",

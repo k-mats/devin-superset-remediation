@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
@@ -16,9 +15,6 @@ export async function buildServer() {
     },
   });
 
-  await server.register(cors, {
-    origin: config.corsAllowedOrigins.length > 0 ? config.corsAllowedOrigins : false,
-  });
   await server.register(healthRoutes);
 
   // Clean up resources whenever the Fastify instance is closed.
