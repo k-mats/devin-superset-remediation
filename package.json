@@ -1,0 +1,45 @@
+{
+  "name": "devin-superset-remediation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Event-driven orchestration service for Devin API to remediate GitHub issues",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test && pnpm build"
+  },
+  "packageManager": "pnpm@12.4.2",
+  "type": "module",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.12.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.13.5",
+    "@vitest/coverage-v8": "^5.0.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.8",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  }
+}

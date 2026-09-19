@@ -1,0 +1,105 @@
+# devin-superset-remediation
+
+Event-driven orchestration service for Devin API to remediate selected issues in a fork of Apache Superset.
+
+## Overview
+
+This project implements an automated system that:
+- Detects selected issues in a fork of Apache Superset
+- Invokes the Devin API to perform remediation
+- Tracks Devin sessions and resulting pull requests
+- Verifies and reports remediation results
+- Preserves idempotency, failure handling, and evidence suitable for evaluation
+
+## Technology Stack
+
+- **Language**: TypeScript 6.0.3
+- **Runtime**: Node.js 24 LTS (24.21.0)
+- **Framework**: Fastify 5
+- **Database**: SQLite with Drizzle ORM and better-sqlite3
+- **Package Manager**: pnpm 12.4.2
+- **Testing**: Vitest 5
+- **Linting**: ESLint 10 with typescript-eslint
+- **Formatting**: Prettier
+
+## Development
+
+### Prerequisites
+
+- Node.js 24.21.0
+- pnpm 12.4.2
+
+### Installation
+
+```bash
+pnpm install
+```
+
+### Commands
+
+#### Verification
+- `pnpm check` - Run comprehensive code quality checks (format, lint, type-check, test, build)
+
+#### Application Execution
+- `pnpm dev` - Start development server with hot reload
+- `pnpm build` - Build TypeScript to JavaScript
+- `pnpm start` - Start production server (requires build first)
+
+#### Tests
+- `pnpm test` - Run all tests
+- `pnpm test:coverage` - Run tests with coverage report
+
+#### Linting
+- `pnpm lint` - Run ESLint
+- `pnpm lint:fix` - Run ESLint with auto-fix
+- `pnpm format` - Format code with Prettier
+- `pnpm format:check` - Check code formatting
+
+#### Type Checking
+- `pnpm type-check` - Run TypeScript type checking
+
+#### Database
+- `pnpm db:generate` - Generate Drizzle migrations from schema
+- `pnpm db:migrate` - Apply migrations to the database
+
+### Environment Variables
+
+Create a `.env` file based on `.env.example`:
+
+```env
+NODE_ENV=development
+PORT=3000
+DATABASE_PATH=./database.db
+LOG_LEVEL=info
+```
+
+### Health Endpoints
+
+- `GET /health` - Process liveness check
+- `GET /ready` - Application readiness check with database connectivity
+
+## Architecture
+
+The system follows an event-driven architecture:
+
+```
+GitHub issue/event
+    ↓
+orchestrator
+    ↓
+Devin API
+    ↓
+pull request
+    ↓
+verification/reporting
+```
+
+See [architecture.md](architecture.md) for detailed architectural information.
+
+## Development Conventions
+
+- Strict TypeScript mode with no implicit any
+- Type-safe database operations with Drizzle ORM
+- Comprehensive testing for external side effects
+- Idempotent event processing
+- Evidence preservation for evaluation

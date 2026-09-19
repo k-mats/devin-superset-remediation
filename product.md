@@ -42,6 +42,7 @@ Engineering teams using GitHub for issue tracking and pull requests need an auto
 ## Take-Home Context
 
 This is a take-home project for Cognition's Deployed Engineer role. The project demonstrates:
+
 - Integration with the Devin API
 - Event-driven architecture
 - GitHub webhook/event handling
