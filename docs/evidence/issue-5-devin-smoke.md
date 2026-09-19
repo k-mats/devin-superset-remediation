@@ -37,22 +37,50 @@ SMOKE_OUTPUT_PATH=docs/evidence/issue-5-devin-smoke.json \
 
 ## Evidence
 
-| Field           | Value |
-| --------------- | ----- |
-| Session ID      | TBD   |
-| Session URL     | TBD   |
-| status          | TBD   |
-| status_detail   | TBD   |
-| origin          | TBD   |
-| service_user_id | TBD   |
-| ACU consumed    | TBD   |
-| created_at      | TBD   |
+Run on 2026-09-19 (UTC) with `pnpm smoke:devin` against `https://api.devin.ai/v3`.
+
+| Field           | Value                                                                |
+| --------------- | -------------------------------------------------------------------- |
+| Session ID      | `150963c3a1564467b7e940850a07be0b`                                   |
+| Session URL     | https://app.devin.ai/sessions/150963c3a1564467b7e940850a07be0b       |
+| status          | `running`                                                            |
+| status_detail   | `waiting_for_user` (Devin replied `pong` and finished its turn)      |
+| origin          | `api`                                                                |
+| service_user_id | `service-user-93e76146898e431aaae18389201489e0`                      |
+| ACU consumed    | `0` (`acus_consumed` as reported by Get Session ~16s after creation) |
+| created_at      | `1789830046` (2026-09-19T14:47:26Z)                                  |
+| tags            | `take-home`, `issue-5`, `smoke-test`                                 |
+
+The session's message list (`GET .../sessions/{devin_id}/messages`) shows the
+prompt sent by the service account with `origin: "api"` followed by Devin's
+single reply `pong`, confirming the lifecycle end-to-end.
 
 ## Sanitized response example
 
+Summary printed by the script (`SMOKE_OUTPUT_PATH` JSON):
+
 ```json
-TBD — paste the sanitized JSON summary printed by the script here
+{
+  "session_id": "150963c3a1564467b7e940850a07be0b",
+  "url": "https://app.devin.ai/sessions/150963c3a1564467b7e940850a07be0b",
+  "status": "running",
+  "status_detail": "waiting_for_user",
+  "origin": "api",
+  "service_user_id": "service-user-93e76146898e431aaae18389201489e0",
+  "tags": ["take-home", "issue-5", "smoke-test"],
+  "acus_consumed": 0,
+  "created_at": 1789830046,
+  "updated_at": 1789830062,
+  "title": "Issue #5 Devin API smoke test",
+  "originIsApi": true
+}
 ```
+
+## Observations for the main workflow
+
+- `POST .../sessions` returns the full `SessionResponse` (including `session_id` and `url`) synchronously, so the session ID can be persisted before any polling.
+- `status` stays `running` while Devin waits for input; `status_detail` (`working` → `waiting_for_user`) is the signal that a turn has completed. Terminal `status` values are `exit` / `error` / `suspended`.
+- `acus_consumed` lags real usage; poll again later (or use the consumption endpoint) for final billing figures.
 
 Note: no API tokens or raw responses are recorded here — only the sanitized
 fields listed above.
