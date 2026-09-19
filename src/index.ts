@@ -4,16 +4,21 @@ import cors from '@fastify/cors';
 
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
-import { closeDb } from './db/client.js';
+import { closeDb, runMigrations } from './db/client.js';
 
 export async function buildServer() {
+  // Bring the schema up to date before the server can accept traffic.
+  runMigrations();
+
   const server = Fastify({
     logger: {
       level: config.logLevel,
     },
   });
 
-  await server.register(cors);
+  await server.register(cors, {
+    origin: config.corsAllowedOrigins.length > 0 ? config.corsAllowedOrigins : false,
+  });
   await server.register(healthRoutes);
 
   // Clean up resources whenever the Fastify instance is closed.

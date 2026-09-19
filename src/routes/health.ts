@@ -17,8 +17,8 @@ export function healthRoutes(fastify: FastifyInstance) {
       if (!sqlite) {
         throw new Error('Database not initialized');
       }
-      // Perform a simple SELECT 1 query to verify database connectivity
-      sqlite.prepare('SELECT 1').get();
+      // Query an application table so readiness also proves the schema exists
+      sqlite.prepare('SELECT COUNT(*) FROM sessions').get();
 
       await reply.code(200).send({
         status: 'ready',
