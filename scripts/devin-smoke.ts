@@ -69,20 +69,26 @@ async function main(): Promise<number> {
     console.error(`status: ${current.status} (detail: ${current.status_detail ?? 'n/a'})`);
   }
 
+  // Record deadline expiry before the final fetch so a session that finishes
+  // during that last request cannot turn a timeout into a pass.
+  const timedOut = !isTerminal(current) && Date.now() >= deadline;
+
   // Always do one final fetch for the freshest state.
   current = await client.getSession(session.session_id);
 
-  const timedOut = !isTerminal(current);
+  const failed = current.status === 'error' || current.status === 'suspended';
   const completed =
-    (current.status_detail !== null &&
+    !failed &&
+    ((current.status_detail !== null &&
       current.status_detail !== undefined &&
       SUCCESS_STATUS_DETAILS.has(current.status_detail)) ||
-    SUCCESS_STATUSES.has(current.status);
+      SUCCESS_STATUSES.has(current.status));
 
   const summary = {
     ...summarize(current),
     originIsApi: current.origin === 'api',
     timedOut,
+    failed,
     completed,
   };
   console.log(JSON.stringify(summary, null, 2));
@@ -96,7 +102,7 @@ async function main(): Promise<number> {
     console.error(`FAIL: expected origin 'api', got '${String(current.origin)}'`);
     return 1;
   }
-  if (!completed) {
+  if (timedOut || !completed) {
     console.error(
       `FAIL: session did not complete its turn (status=${current.status}, detail=${String(current.status_detail)}, timedOut=${String(timedOut)})`
     );

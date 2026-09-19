@@ -80,6 +80,7 @@ Summary printed by the script (`SMOKE_OUTPUT_PATH` JSON):
   "title": "Issue #5 Devin API smoke test",
   "originIsApi": true,
   "timedOut": false,
+  "failed": false,
   "completed": true
 }
 ```
