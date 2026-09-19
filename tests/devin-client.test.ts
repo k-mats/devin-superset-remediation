@@ -107,6 +107,15 @@ describe('DevinClient', () => {
     await expect(client.getSession('devin-abc')).rejects.toThrow(/unexpected response/i);
   });
 
+  it('passes an AbortSignal to fetch so requests are time-bounded', async () => {
+    const fetchFn = mockFetch();
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    await client.getSession('devin-abc');
+    const [, init] = fetchFn.mock.calls[0] ?? [];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('strips a trailing slash from baseUrl', async () => {
     const fetchFn = mockFetch();
     const client = new DevinClient({

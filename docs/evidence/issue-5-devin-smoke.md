@@ -35,6 +35,12 @@ SMOKE_OUTPUT_PATH=docs/evidence/issue-5-devin-smoke.json \
   DEVIN_API_KEY=... DEVIN_ORG_ID=... pnpm smoke:devin
 ```
 
+The script exits non-zero unless the session both has `origin: "api"` and
+completed its turn (`status: "exit"` or `status_detail` of `waiting_for_user` /
+`finished`). Polling is bounded by `SMOKE_POLL_TIMEOUT_MS` (default 5 min) and
+each HTTP request by a 30 s timeout — a timeout, `error`, or `suspended`
+session fails the smoke test rather than passing.
+
 ## Evidence
 
 Run on 2026-09-19 (UTC) with `pnpm smoke:devin` against `https://api.devin.ai/v3`.
@@ -72,7 +78,9 @@ Summary printed by the script (`SMOKE_OUTPUT_PATH` JSON):
   "created_at": 1789830046,
   "updated_at": 1789830062,
   "title": "Issue #5 Devin API smoke test",
-  "originIsApi": true
+  "originIsApi": true,
+  "timedOut": false,
+  "completed": true
 }
 ```
 

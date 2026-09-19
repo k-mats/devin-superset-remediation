@@ -11,6 +11,10 @@ const OUTPUT_PATH = process.env['SMOKE_OUTPUT_PATH'];
 // A running session that is waiting on the user has finished its turn, so stop polling there too.
 const NON_TERMINAL_STATUSES = new Set(['new', 'claimed', 'running', 'resuming']);
 const IDLE_STATUS_DETAILS = new Set(['waiting_for_user', 'waiting_for_approval', 'finished']);
+// Success requires the session to have actually completed its turn: either an
+// `exit` status or a status_detail showing it finished or is waiting on the user.
+const SUCCESS_STATUSES = new Set(['exit']);
+const SUCCESS_STATUS_DETAILS = new Set(['waiting_for_user', 'finished']);
 
 function isTerminal(session: SessionResponse): boolean {
   if (session.status_detail && IDLE_STATUS_DETAILS.has(session.status_detail)) {
@@ -58,7 +62,9 @@ async function main(): Promise<number> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let current = session;
   while (!isTerminal(current) && Date.now() < deadline) {
-    await sleep(POLL_INTERVAL_MS);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await sleep(Math.min(POLL_INTERVAL_MS, remaining));
     current = await client.getSession(session.session_id);
     console.error(`status: ${current.status} (detail: ${current.status_detail ?? 'n/a'})`);
   }
@@ -66,7 +72,19 @@ async function main(): Promise<number> {
   // Always do one final fetch for the freshest state.
   current = await client.getSession(session.session_id);
 
-  const summary = { ...summarize(current), originIsApi: current.origin === 'api' };
+  const timedOut = !isTerminal(current);
+  const completed =
+    (current.status_detail !== null &&
+      current.status_detail !== undefined &&
+      SUCCESS_STATUS_DETAILS.has(current.status_detail)) ||
+    SUCCESS_STATUSES.has(current.status);
+
+  const summary = {
+    ...summarize(current),
+    originIsApi: current.origin === 'api',
+    timedOut,
+    completed,
+  };
   console.log(JSON.stringify(summary, null, 2));
 
   if (OUTPUT_PATH) {
@@ -78,7 +96,13 @@ async function main(): Promise<number> {
     console.error(`FAIL: expected origin 'api', got '${String(current.origin)}'`);
     return 1;
   }
-  console.error('OK: session origin is api');
+  if (!completed) {
+    console.error(
+      `FAIL: session did not complete its turn (status=${current.status}, detail=${String(current.status_detail)}, timedOut=${String(timedOut)})`
+    );
+    return 1;
+  }
+  console.error('OK: session origin is api and session completed its turn');
   return 0;
 }
 

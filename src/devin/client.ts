@@ -38,6 +38,7 @@ export interface DevinClientOptions {
   orgId: string;
   baseUrl?: string;
   fetchFn?: typeof fetch;
+  requestTimeoutMs?: number;
 }
 
 export class DevinApiError extends Error {
@@ -57,12 +58,14 @@ export class DevinClient {
   private readonly orgId: string;
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
+  private readonly requestTimeoutMs: number;
 
   constructor(opts: DevinClientOptions) {
     this.apiKey = opts.apiKey;
     this.orgId = opts.orgId;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.fetchFn = opts.fetchFn ?? globalThis.fetch;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
   }
 
   private async request(method: string, path: string, body?: unknown): Promise<SessionResponse> {
@@ -73,6 +76,7 @@ export class DevinClient {
         'Content-Type': 'application/json',
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {
