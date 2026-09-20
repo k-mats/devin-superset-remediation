@@ -251,6 +251,7 @@ describe('Devin dispatcher', () => {
 
   it.each<[string, Error]>([
     ['500 response', new GitHubApiError(500, 'GET', '/x', 'oops')],
+    ['403 response', new GitHubApiError(403, 'GET', '/x', 'rate limited')],
     ['429 response', new GitHubApiError(429, 'GET', '/x', 'rate limited')],
     ['network error', new Error('ECONNRESET')],
     ['parse error', new Error('unexpected response')],

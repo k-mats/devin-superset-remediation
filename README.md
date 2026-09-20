@@ -115,9 +115,9 @@ Between claim and dispatch the issue is refetched from GitHub and
 revalidated: issues that became pull requests, closed, or lost the intake
 label are completed with outcome `cancelled` and an `outcome_reason` of
 `is_pull_request`, `issue_closed`, or `label_missing`. If the eligibility
-check fails terminally (a GitHub 4xx other than 429), the attempt is
+check fails terminally (a GitHub 4xx other than 403 or 429), the attempt is
 completed with outcome `failed` and reason `eligibility_check_failed:
-<message>`. Transient revalidation failures (5xx, 429, network/timeout, or
+<message>`. Transient revalidation failures (5xx, 403, 429, network/timeout, or
 parse errors) instead release the claim back to `pending` and the attempt
 is retried on the next poll — retry caps are owned by Issue #21. If
 `createSession` fails or times out, the attempt is intentionally left in

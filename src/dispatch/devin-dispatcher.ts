@@ -42,6 +42,17 @@ export interface DevinDispatcherOptions {
 
 const MAX_TITLE_LENGTH = 120;
 
+// GitHub 4xx are terminal, except 403 (primary/secondary rate limits) and 429.
+function isTerminalEligibilityError(error: unknown): boolean {
+  return (
+    error instanceof GitHubApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 403 &&
+    error.status !== 429
+  );
+}
+
 export function buildSessionTags(task: Task, attempt: Attempt): string[] {
   return [
     'devin-superset-remediation',
@@ -85,12 +96,7 @@ export async function dispatchAttempt(
   try {
     issue = await opts.github.getIssue(task.repoOwner, task.repoName, task.issueNumber);
   } catch (error: unknown) {
-    const terminal =
-      error instanceof GitHubApiError &&
-      error.status >= 400 &&
-      error.status < 500 &&
-      error.status !== 429;
-    if (terminal) {
+    if (isTerminalEligibilityError(error)) {
       const message = error instanceof Error ? error.message : String(error);
       opts.logger.error(
         { err: error, attempt_id: attempt.id, correlation_id: attempt.correlationId },

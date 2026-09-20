@@ -90,8 +90,7 @@ export async function buildServer() {
   }
 
   server.addHook('preClose', async () => {
-    await stopIntakePoller?.();
-    await stopDispatchPoller?.();
+    await Promise.all([stopIntakePoller?.(), stopDispatchPoller?.()]);
   });
 
   // Clean up resources whenever the Fastify instance is closed.

@@ -102,8 +102,8 @@ The dispatch poller claims each `pending` attempt with a single conditional
 issue is refetched and revalidated against the intake eligibility rules;
 newly ineligible issues are `cancelled` with a recorded `outcome_reason`
 (`is_pull_request`, `issue_closed`, or `label_missing`). A terminal
-eligibility-check failure (GitHub 4xx except 429) completes the attempt as
-`failed`, while a transient failure (5xx, 429, network/timeout, parse
+eligibility-check failure (GitHub 4xx except 403/429) completes the attempt as
+`failed`, while a transient failure (5xx, 403, 429, network/timeout, parse
 errors) releases the claim back to `pending` for the next poll — retry caps
 are Issue #21. A `createSession` failure leaves
 the attempt in `dispatching` for the reconciliation pass, since the session
