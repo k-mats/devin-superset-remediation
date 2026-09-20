@@ -96,6 +96,42 @@ const fixtures: Array<{ name: string; valid: boolean; value: unknown }> = [
     },
   },
   {
+    name: 'valid remediated with dotted/dashed repo name',
+    valid: true,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/k-mats/super-set.js/pull/12',
+    },
+  },
+  {
+    name: 'pr_url with ? in owner segment',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/o?x/r/pull/1',
+    },
+  },
+  {
+    name: 'pr_url with # in repo segment',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/o/r#x/pull/1',
+    },
+  },
+  {
+    name: 'pr_url with pull number 0',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/o/r/pull/0',
+    },
+  },
+  {
     name: 'pr_url with extra path segment',
     valid: false,
     value: {

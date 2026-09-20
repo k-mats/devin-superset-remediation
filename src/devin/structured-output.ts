@@ -7,7 +7,7 @@ export const TEST_RESULTS = ['passed', 'failed'] as const;
 
 export type AgentOutcome = (typeof AGENT_OUTCOMES)[number];
 
-const PR_URL_PATTERN = '^https://github\\.com/[^/]+/[^/]+/pull/\\d+$';
+const PR_URL_PATTERN = '^https://github\\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/pull/[1-9]\\d*$';
 
 export const structuredOutputJsonSchema: Record<string, unknown> = {
   $schema: 'http://json-schema.org/draft-07/schema#',
