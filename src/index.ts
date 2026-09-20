@@ -19,7 +19,7 @@ export async function buildServer() {
 
   await server.register(healthRoutes);
 
-  let stopIntakePoller: (() => void) | undefined;
+  let stopIntakePoller: (() => Promise<void>) | undefined;
   if (config.githubPollIntervalMs === 0) {
     server.log.info('GitHub intake polling disabled');
   } else {
@@ -46,14 +46,14 @@ export async function buildServer() {
         logger: server.log,
       });
       stopIntakePoller = () => {
-        poller.stop();
+        return poller.stop();
       };
     }
   }
 
   // Clean up resources whenever the Fastify instance is closed.
-  server.addHook('onClose', () => {
-    stopIntakePoller?.();
+  server.addHook('onClose', async () => {
+    await stopIntakePoller?.();
     closeDb();
   });
 

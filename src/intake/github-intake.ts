@@ -138,36 +138,40 @@ export async function runIntakeOnce(opts: GitHubIntakeOptions): Promise<IntakeRe
 }
 
 export function startIntakePoller(opts: GitHubIntakeOptions & { intervalMs: number }): {
-  stop(): void;
+  stop(): Promise<void>;
 } {
   let inFlight = false;
   let stopped = false;
+  let current: Promise<void> | undefined;
 
-  const run = async () => {
+  const run = () => {
     if (stopped) return;
     if (inFlight) {
       opts.logger.debug('Skipping GitHub intake poll while previous run is in flight');
       return;
     }
     inFlight = true;
-    try {
-      await runIntakeOnce(opts);
-    } catch (error: unknown) {
-      opts.logger.error({ err: error }, 'GitHub intake run failed unexpectedly');
-    } finally {
-      inFlight = false;
-    }
+    current = runIntakeOnce(opts)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        opts.logger.error({ err: error }, 'GitHub intake run failed unexpectedly');
+      })
+      .finally(() => {
+        inFlight = false;
+        current = undefined;
+      });
   };
 
-  void run();
+  run();
   const interval = setInterval(() => {
-    void run();
+    run();
   }, opts.intervalMs);
 
   return {
-    stop() {
+    async stop() {
       stopped = true;
       clearInterval(interval);
+      await current;
     },
   };
 }

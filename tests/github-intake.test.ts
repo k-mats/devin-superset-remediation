@@ -217,7 +217,7 @@ describe('GitHub intake', () => {
       expect(client.listOpenIssuesByLabel).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(1000);
       expect(client.listOpenIssuesByLabel).toHaveBeenCalledTimes(2);
-      poller.stop();
+      await poller.stop();
       await vi.advanceTimersByTimeAsync(3000);
       expect(client.listOpenIssuesByLabel).toHaveBeenCalledTimes(2);
     } finally {
@@ -245,7 +245,49 @@ describe('GitHub intake', () => {
       expect(client.listOpenIssuesByLabel).toHaveBeenCalledTimes(1);
       resolve?.();
       await vi.advanceTimersByTimeAsync(0);
-      poller.stop();
+      await poller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for an in-flight run before stop resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveIssues: ((issues: GitHubIssue[]) => void) | undefined;
+      const client = {
+        listOpenIssuesByLabel: vi.fn(
+          () =>
+            new Promise<GitHubIssue[]>((resolve) => {
+              resolveIssues = resolve;
+            })
+        ),
+      };
+      const intakeLogger = logger();
+      const poller = startIntakePoller({
+        ...options(client, { logger: intakeLogger }),
+        intervalMs: 1000,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const stop = poller.stop();
+      let stopResolved = false;
+      void stop.then(() => {
+        stopResolved = true;
+      });
+      await Promise.resolve();
+      expect(stopResolved).toBe(false);
+
+      resolveIssues?.([]);
+      await stop;
+      expect(stopResolved).toBe(true);
+      expect(intakeLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ fetched: 0, created: 0, skipped: 0, ineligible: 0 }),
+        'GitHub intake completed'
+      );
+
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(client.listOpenIssuesByLabel).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

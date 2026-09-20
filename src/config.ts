@@ -11,7 +11,7 @@ const configSchema = z.object({
   githubRepoOwner: z.string().optional(),
   githubRepoName: z.string().optional(),
   githubIntakeLabel: z.string().default('devin-ready'),
-  githubPollIntervalMs: z.coerce.number().int().min(0).default(60_000),
+  githubPollIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
   devinApiKey: z.string().optional(),
   devinOrgId: z.string().optional(),
   devinApiUrl: z.url().default('https://api.devin.ai/v3'),
