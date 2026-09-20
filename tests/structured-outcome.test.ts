@@ -96,6 +96,35 @@ const fixtures: Array<{ name: string; valid: boolean; value: unknown }> = [
     },
   },
   {
+    name: 'pr_url with extra path segment',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/owner/repo/issues/7/pull/9',
+    },
+  },
+  {
+    name: 'no_action with needs_human_reason',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'no_action',
+      pr_url: null,
+      needs_human_reason: 'Approval needed',
+    },
+  },
+  {
+    name: 'remediated with needs_human_reason',
+    valid: false,
+    value: {
+      ...base,
+      outcome: 'remediated',
+      pr_url: 'https://github.com/o/r/pull/1',
+      needs_human_reason: 'Approval needed',
+    },
+  },
+  {
     name: 'missing diagnosis',
     valid: false,
     value: {

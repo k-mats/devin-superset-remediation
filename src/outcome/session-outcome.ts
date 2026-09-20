@@ -70,8 +70,10 @@ export async function collectSessionOutcome(
     return { decision: 'recorded', session, outcome: parsed.value };
   }
 
-  recordStructuredOutcome(attempt.id, { raw: session.structured_output, parsed: undefined }, db);
-  completeAttempt(attempt.id, 'escalated', { reason: `${parsed.reason}: ${parsed.message}` }, db);
+  db.transaction((tx) => {
+    recordStructuredOutcome(attempt.id, { raw: session.structured_output, parsed: undefined }, tx);
+    completeAttempt(attempt.id, 'escalated', { reason: `${parsed.reason}: ${parsed.message}` }, tx);
+  });
   opts.logger.warn(
     { ...logContext, reason: parsed.reason },
     'Devin session finished without valid structured output; escalated attempt'

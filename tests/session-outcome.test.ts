@@ -3,6 +3,7 @@ import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
 import type { SessionResponse } from '../src/devin/client.js';
 import {
+  InvalidTransitionError,
   completeAttempt,
   createAttempt,
   getAttempt,
@@ -151,6 +152,25 @@ describe('collectSessionOutcome', () => {
     });
     expect(stored?.outcomeReason).toMatch(/^structured_output_invalid/);
     expect(JSON.parse(stored?.structuredOutputRaw as string)).toEqual(raw);
+  });
+
+  it('rolls back the raw write when another writer completes the attempt mid-collection', async () => {
+    const attempt = activeAttempt();
+    const getSession = vi.fn(() => {
+      // Another writer completes the attempt between fetch and persistence.
+      completeAttempt(attempt.id, 'cancelled');
+      return Promise.resolve(session({ structured_output: { outcome: 'bogus' } }));
+    });
+
+    await expect(
+      collectSessionOutcome(attempt, { devin: { getSession }, logger: logger() })
+    ).rejects.toBeInstanceOf(InvalidTransitionError);
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'completed',
+      outcome: 'cancelled',
+      structuredOutputRaw: null,
+      agentOutcome: null,
+    });
   });
 
   it('returns already_completed without calling getSession', async () => {
