@@ -10,7 +10,7 @@ import {
   type Task,
 } from './schema.js';
 
-type Db = ReturnType<typeof getDb>;
+export type Db = ReturnType<typeof getDb>;
 type TaskIdentityInput = {
   repoOwner: string;
   repoName: string;
