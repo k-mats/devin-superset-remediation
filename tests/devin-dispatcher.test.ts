@@ -251,8 +251,8 @@ describe('Devin dispatcher', () => {
 
   it.each<[string, Error]>([
     ['500 response', new GitHubApiError(500, 'GET', '/x', 'oops')],
-    ['403 response', new GitHubApiError(403, 'GET', '/x', 'rate limited')],
-    ['429 response', new GitHubApiError(429, 'GET', '/x', 'rate limited')],
+    ['403 rate limit', new GitHubApiError(403, 'GET', '/x', 'rate limited', true)],
+    ['429 rate limit', new GitHubApiError(429, 'GET', '/x', 'rate limited', true)],
     ['network error', new Error('ECONNRESET')],
     ['parse error', new Error('unexpected response')],
   ])(
@@ -284,6 +284,26 @@ describe('Devin dispatcher', () => {
       expect(getAttempt(attempt.id)?.state).toBe('session_created');
     }
   );
+
+  it('fails the attempt on a 403 that is not a rate-limit response', async () => {
+    await intakeIssueOnce();
+    const { attempt, task } = pendingAttempt();
+    const devin = fakeDevin();
+    const opts = dispatchOptions({
+      devin,
+      github: {
+        getIssue: vi.fn(() =>
+          Promise.reject(new GitHubApiError(403, 'GET', '/repos/owner/repo/issues/7', 'Forbidden'))
+        ),
+      },
+    });
+
+    const decision = await dispatchAttempt(attempt, task, opts);
+
+    expect(decision).toBe('failed_eligibility_check');
+    expect(devin.createSession).not.toHaveBeenCalled();
+    expect(getAttempt(attempt.id)).toMatchObject({ state: 'completed', outcome: 'failed' });
+  });
 
   it('counts deferred attempts in the dispatch summary', async () => {
     await intakeIssueOnce();

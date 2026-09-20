@@ -108,6 +108,23 @@ describe('GitHubClient', () => {
     expect(error).toMatchObject({ status: 404 });
   });
 
+  it.each<[number, Record<string, string>, boolean]>([
+    [403, { 'x-ratelimit-remaining': '0' }, true],
+    [429, { 'retry-after': '30' }, true],
+    [403, {}, false],
+    [429, {}, false],
+    [500, { 'x-ratelimit-remaining': '0' }, false],
+  ])('flags %i with headers %j as rateLimited=%s', async (status, headers, expectedRateLimited) => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('nope', { status, headers }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client.getIssue('owner', 'repo', 7).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect((error as GitHubApiError).rateLimited).toBe(expectedRateLimited);
+  });
+
   it('throws for an invalid response shape', async () => {
     const fetchFn = vi.fn<typeof fetch>(() =>
       Promise.resolve(new Response(JSON.stringify({ issue }), { status: 200 }))

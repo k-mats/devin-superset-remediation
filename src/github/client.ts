@@ -34,7 +34,8 @@ export class GitHubApiError extends Error {
     public readonly status: number,
     public readonly method: string,
     public readonly path: string,
-    public readonly body: string
+    public readonly body: string,
+    public readonly rateLimited: boolean = false
   ) {
     super(`GitHub API ${method} ${path} failed with status ${String(status)}: ${body}`);
     this.name = 'GitHubApiError';
@@ -71,7 +72,11 @@ export class GitHubClient {
     if (!response.ok) {
       const text = (await response.text()).slice(0, MAX_ERROR_BODY_LENGTH);
       const body = text.replaceAll(this.token, '[REDACTED]');
-      throw new GitHubApiError(response.status, 'GET', path, body);
+      const rateLimited =
+        (response.status === 403 || response.status === 429) &&
+        (response.headers.get('x-ratelimit-remaining') === '0' ||
+          response.headers.has('retry-after'));
+      throw new GitHubApiError(response.status, 'GET', path, body, rateLimited);
     }
 
     return response.json();
