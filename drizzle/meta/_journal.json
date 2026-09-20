@@ -22,6 +22,20 @@
       "when": 1789918169472,
       "tag": "0002_thick_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789924880749,
+      "tag": "0003_wild_terrax",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789924887968,
+      "tag": "0004_kind_raza",
+      "breakpoints": true
     }
   ]
 }

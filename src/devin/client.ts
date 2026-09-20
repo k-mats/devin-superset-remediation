@@ -64,6 +64,7 @@ export const sessionResponseSchema = z
     updated_at: z.number(),
     acus_consumed: z.number().nullish(),
     is_archived: z.boolean().optional(),
+    structured_output: z.unknown().nullish(),
   })
   .loose();
 
@@ -75,6 +76,8 @@ export interface CreateSessionRequest {
   tags?: string[];
   max_acu_limit?: number;
   resumable?: boolean;
+  structured_output_schema?: Record<string, unknown>;
+  structured_output_required?: boolean;
 }
 
 export interface DevinClientOptions {
@@ -145,6 +148,18 @@ export class DevinClient {
   getSession(sessionId: string): Promise<SessionResponse> {
     return this.request('GET', `/organizations/${this.orgId}/sessions/${sessionId}`);
   }
+}
+
+const FINISHED_STATUSES: readonly SessionStatus[] = ['exit', 'error', 'suspended'];
+const FINISHED_STATUS_DETAILS: readonly SessionStatusDetail[] = ['finished', 'waiting_for_user'];
+
+export function isSessionTurnComplete(session: SessionResponse): boolean {
+  return (
+    FINISHED_STATUSES.includes(session.status) ||
+    (session.status_detail !== null &&
+      session.status_detail !== undefined &&
+      FINISHED_STATUS_DETAILS.includes(session.status_detail))
+  );
 }
 
 export function createDevinClientFromConfig(config: Config): DevinClient {

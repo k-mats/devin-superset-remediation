@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
+import type { StructuredOutcome } from '../devin/structured-outcome.js';
 import {
   attempts,
   type Attempt,
@@ -233,6 +234,37 @@ export function setPrUrl(attemptId: number, prUrl: string, db: DbExecutor = getD
   const result = db
     .update(attempts)
     .set({ prUrl, updatedAt: Date.now() })
+    .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
+    .run();
+  if (result.changes !== 1) {
+    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function recordStructuredOutcome(
+  attemptId: number,
+  input: { raw: unknown; parsed: StructuredOutcome | undefined },
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (attempt.state === 'completed') {
+    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  }
+  const parsed = input.parsed;
+  const result = db
+    .update(attempts)
+    .set({
+      structuredOutputRaw:
+        input.raw === undefined || input.raw === null ? null : JSON.stringify(input.raw),
+      agentOutcome: parsed?.outcome ?? null,
+      agentPrUrl: parsed?.pr_url ?? null,
+      agentDiagnosis: parsed?.diagnosis ?? null,
+      agentTestsRun: parsed?.tests_run ?? null,
+      agentRisks: parsed?.risks ?? null,
+      needsHumanReason: parsed?.needs_human_reason ?? null,
+      updatedAt: Date.now(),
+    })
     .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
     .run();
   if (result.changes !== 1) {

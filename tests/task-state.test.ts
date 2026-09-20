@@ -23,6 +23,7 @@ import {
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
+  recordStructuredOutcome,
   setPrUrl,
   upsertTask,
 } from '../src/db/task-state.js';
@@ -202,6 +203,9 @@ describe('task state repository', () => {
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
     expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
+    expect(() => recordStructuredOutcome(attempt.id, { raw: null, parsed: undefined })).toThrow(
+      InvalidTransitionError
+    );
   });
 
   it('rejects stale completion and preserves the newer outcome', () => {
