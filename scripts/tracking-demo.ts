@@ -8,7 +8,7 @@ import { createGitHubClientFromConfig } from '../src/github/client.js';
 import {
   getAttempt,
   findTrackableAttempts,
-  findAttemptsWithOpenPullRequests,
+  findCompletedAttemptsWithTrackedPullRequests,
 } from '../src/db/task-state.js';
 import { runTrackingOnce, trackAttemptOnce } from '../src/tracking/session-tracker.js';
 
@@ -34,14 +34,18 @@ async function main(): Promise<number> {
     const db = getDb();
     const devin = createDevinClientFromConfig(config);
     const github = createGitHubClientFromConfig(config);
-    const rows = [...findTrackableAttempts(db), ...findAttemptsWithOpenPullRequests(db)];
+    const rows = [
+      ...findTrackableAttempts(db),
+      ...findCompletedAttemptsWithTrackedPullRequests(db),
+    ];
     const touchedIds = new Set(rows.map(({ attempt }) => attempt.id));
     let result;
     if (values.attempt) {
       const attempt = getAttempt(Number(values.attempt), db);
-      const row = [...findTrackableAttempts(db), ...findAttemptsWithOpenPullRequests(db)].find(
-        ({ attempt: candidate }) => candidate.id === attempt?.id
-      );
+      const row = [
+        ...findTrackableAttempts(db),
+        ...findCompletedAttemptsWithTrackedPullRequests(db),
+      ].find(({ attempt: candidate }) => candidate.id === attempt?.id);
       if (!row) {
         console.error('Trackable attempt not found');
         return 1;

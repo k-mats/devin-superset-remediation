@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dab2f17d-5336-4b33-a7dc-2e496534b9f8",
+  "id": "aa23554e-f99a-4f59-b226-36599621c21a",
   "prevId": "6499cbbc-dbfa-4f75-bcc8-f7399b11979b",
   "tables": {
     "attempts": {
@@ -313,7 +313,7 @@
         },
         "attempts_pr_fields_check": {
           "name": "attempts_pr_fields_check",
-          "value": "(\"attempts\".\"pr_url\" IS NULL) = (\"attempts\".\"pr_number\" IS NULL)"
+          "value": "\"attempts\".\"pr_number\" IS NULL OR \"attempts\".\"pr_url\" IS NOT NULL"
         },
         "attempts_pr_state_check": {
           "name": "attempts_pr_state_check",

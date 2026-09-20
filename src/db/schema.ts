@@ -113,7 +113,7 @@ export const attempts = sqliteTable(
       'attempts_succeeded_session_check',
       sql`${table.outcome} IS NULL OR ${table.outcome} <> 'succeeded' OR ${table.devinSessionId} IS NOT NULL`
     ),
-    check('attempts_pr_fields_check', sql`(${table.prUrl} IS NULL) = (${table.prNumber} IS NULL)`),
+    check('attempts_pr_fields_check', sql`${table.prNumber} IS NULL OR ${table.prUrl} IS NOT NULL`),
     check(
       'attempts_pr_state_check',
       sql`${table.prState} IS NULL OR ${table.prState} IN ('open', 'closed', 'merged')`

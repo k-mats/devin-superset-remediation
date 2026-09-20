@@ -6,7 +6,7 @@ import { getDb } from '../db/client.js';
 import type { Attempt, Task } from '../db/schema.js';
 import {
   completeAttempt,
-  findAttemptsWithOpenPullRequests,
+  findCompletedAttemptsWithTrackedPullRequests,
   findTrackableAttempts,
   getAttempt,
   markRunning,
@@ -31,7 +31,7 @@ export type TrackingDecision =
 
 export interface TrackingResult {
   trackable: number;
-  openPullRequests: number;
+  trackedPullRequests: number;
   snapshots: number;
   markedRunning: number;
   outputCollected: number;
@@ -114,17 +114,30 @@ export async function trackAttemptOnce(
   const context = logContext(attempt);
   if (!attempt.devinSessionId) return 'failed';
 
-  const session: SessionResponse = await opts.devin.getSession(attempt.devinSessionId);
-  recordSessionSnapshot(
-    attempt.id,
-    {
-      status: session.status,
-      statusDetail: session.status_detail,
-      acusConsumed: session.acus_consumed,
-      sessionUpdatedAt: toEpochMs(session.updated_at),
-    },
-    db
-  );
+  let session: SessionResponse | undefined;
+  try {
+    session = await opts.devin.getSession(attempt.devinSessionId);
+    recordSessionSnapshot(
+      attempt.id,
+      {
+        status: session.status,
+        statusDetail: session.status_detail,
+        acusConsumed: session.acus_consumed,
+        sessionUpdatedAt: toEpochMs(session.updated_at),
+      },
+      db
+    );
+  } catch (error: unknown) {
+    if (attempt.state !== 'verifying') throw error;
+    opts.logger.warn(
+      { ...context, err: error },
+      'Devin session lookup failed for verifying attempt; refreshing pull request'
+    );
+    const current = getAttempt(attempt.id, db);
+    if (!current || current.state !== 'verifying') return 'failed';
+    const refreshed = await refreshPullRequest(current, task, opts, db);
+    return refreshed ?? 'failed';
+  }
   let current = getAttempt(attempt.id, db);
   if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after snapshot`);
 
@@ -236,10 +249,10 @@ function countDecision(result: TrackingResult, decision: TrackingDecision) {
 export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<TrackingResult> {
   const db = opts.db ?? getDb();
   const rows = findTrackableAttempts(db);
-  const openRows = findAttemptsWithOpenPullRequests(db);
+  const trackedRows = findCompletedAttemptsWithTrackedPullRequests(db);
   const result: TrackingResult = {
     trackable: rows.length,
-    openPullRequests: openRows.length,
+    trackedPullRequests: trackedRows.length,
     snapshots: 0,
     markedRunning: 0,
     outputCollected: 0,
@@ -265,7 +278,7 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     countDecision(result, decision);
   }
 
-  for (const { attempt, task } of openRows) {
+  for (const { attempt, task } of trackedRows) {
     try {
       const decision = await refreshPullRequest(attempt, task, opts, db);
       if (decision) countDecision(result, decision);

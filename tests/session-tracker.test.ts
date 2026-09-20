@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
-import type { SessionResponse } from '../src/devin/client.js';
+import { DevinApiError, type SessionResponse } from '../src/devin/client.js';
 import {
   createAttempt,
   getAttempt,
   markDispatching,
+  markRunning,
   markSessionCreated,
+  markVerifying,
+  recordPullRequest,
   upsertTask,
 } from '../src/db/task-state.js';
 import type { GitHubPullRequest } from '../src/github/client.js';
@@ -179,5 +182,44 @@ describe('session tracker', () => {
     expect(result.markedRunning).toBe(1);
     expect(getAttempt(first.attempt.id)?.state).toBe('session_created');
     expect(getAttempt(second.attempt.id)?.state).toBe('running');
+  });
+
+  it('refreshes a verifying pull request when Devin session lookup fails', async () => {
+    const { task, attempt } = activeAttempt(9);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'old-sha',
+    });
+    markVerifying(attempt.id);
+    const github = vi.fn().mockResolvedValue(
+      pullRequest({
+        state: 'closed',
+        merged_at: '2026-01-01T00:00:00Z',
+        head: { sha: 'merged-sha' },
+      })
+    );
+
+    const result = await runTrackingOnce({
+      devin: {
+        getSession: vi
+          .fn()
+          .mockRejectedValue(new DevinApiError(404, 'GET', '/sessions/sess-9', 'missing')),
+      },
+      github: { getPullRequest: github },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(result.prRefreshed).toBe(1);
+    expect(github).toHaveBeenCalledWith('owner', 'repo', 12);
+    expect(getAttempt(attempt.id)).toMatchObject({
+      taskId: task.id,
+      state: 'verifying',
+      prState: 'merged',
+      prHeadSha: 'merged-sha',
+    });
   });
 });

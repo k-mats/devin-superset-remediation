@@ -10,6 +10,9 @@ import { describe, expect, it } from 'vitest';
 const ATTEMPT_COLUMNS_0002 = `INSERT INTO attempts
   (task_id, attempt_number, correlation_id, state, outcome, devin_session_id, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+const ATTEMPT_WITH_PR_URL_0002 = `INSERT INTO attempts
+  (task_id, attempt_number, correlation_id, state, outcome, devin_session_id, created_at, updated_at, pr_url)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 function applyMigrations(sqlite: Database.Database, count: number) {
   const journal = JSON.parse(
@@ -54,6 +57,44 @@ describe('migration 0005 against a pre-existing database', () => {
           .run(taskId, 1, randomUUID(), 'session_created', null, 'sess-1', timestamp, timestamp)
           .lastInsertRowid
       );
+      const insertLegacyPullRequestAttempt = (
+        issueNumber: number,
+        sessionId: string,
+        prUrl: string
+      ) => {
+        const legacyTaskId = Number(
+          sqlite
+            .prepare(
+              'INSERT INTO tasks (repo_owner, repo_name, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+            )
+            .run('acme', 'widget', issueNumber, timestamp, timestamp).lastInsertRowid
+        );
+        return Number(
+          sqlite
+            .prepare(ATTEMPT_WITH_PR_URL_0002)
+            .run(
+              legacyTaskId,
+              1,
+              randomUUID(),
+              'session_created',
+              null,
+              sessionId,
+              timestamp,
+              timestamp,
+              prUrl
+            ).lastInsertRowid
+        );
+      };
+      const canonicalPullRequestAttemptId = insertLegacyPullRequestAttempt(
+        2,
+        'sess-canonical',
+        'https://github.com/acme/widget/pull/42'
+      );
+      const unparseablePullRequestAttemptId = insertLegacyPullRequestAttempt(
+        3,
+        'sess-unparseable',
+        'https://example.com/not-a-pull-request'
+      );
 
       migrate(drizzle(sqlite), { migrationsFolder: './drizzle' });
 
@@ -63,6 +104,7 @@ describe('migration 0005 against a pre-existing database', () => {
         structured_output_raw: string | null;
         agent_outcome: string | null;
         structured_output_accepted_at: number | null;
+        pr_url: string | null;
         devin_session_status: string | null;
         devin_session_status_detail: string | null;
         acus_consumed: number | null;
@@ -76,7 +118,7 @@ describe('migration 0005 against a pre-existing database', () => {
       const row = sqlite
         .prepare(
           `SELECT id, state, structured_output_raw, agent_outcome, structured_output_accepted_at,
-                  devin_session_status, devin_session_status_detail, acus_consumed,
+                  pr_url, devin_session_status, devin_session_status_detail, acus_consumed,
                   session_updated_at, session_last_polled_at, pr_number, pr_state,
                   pr_head_sha, pr_last_checked_at
            FROM attempts WHERE id = ?`
@@ -85,6 +127,7 @@ describe('migration 0005 against a pre-existing database', () => {
       expect(row).toEqual({
         id: attemptId,
         state: 'session_created',
+        pr_url: null,
         structured_output_raw: null,
         agent_outcome: null,
         structured_output_accepted_at: null,
@@ -97,6 +140,22 @@ describe('migration 0005 against a pre-existing database', () => {
         pr_state: null,
         pr_head_sha: null,
         pr_last_checked_at: null,
+      });
+      expect(
+        sqlite
+          .prepare('SELECT pr_url, pr_number FROM attempts WHERE id = ?')
+          .get(canonicalPullRequestAttemptId)
+      ).toEqual({
+        pr_url: 'https://github.com/acme/widget/pull/42',
+        pr_number: 42,
+      });
+      expect(
+        sqlite
+          .prepare('SELECT pr_url, pr_number FROM attempts WHERE id = ?')
+          .get(unparseablePullRequestAttemptId)
+      ).toEqual({
+        pr_url: 'https://example.com/not-a-pull-request',
+        pr_number: null,
       });
 
       expect(() =>

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, isNotNull, isNull, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, max, sql } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -448,14 +448,20 @@ export function findTrackableAttempts(
     .all();
 }
 
-export function findAttemptsWithOpenPullRequests(
+export function findCompletedAttemptsWithTrackedPullRequests(
   db: DbExecutor = getDb()
 ): Array<{ attempt: Attempt; task: Task }> {
   return db
     .select({ attempt: attempts, task: tasks })
     .from(attempts)
     .innerJoin(tasks, eq(attempts.taskId, tasks.id))
-    .where(and(eq(attempts.prState, 'open'), eq(attempts.state, 'completed')))
+    .where(
+      and(
+        eq(attempts.state, 'completed'),
+        isNotNull(attempts.prNumber),
+        sql`${attempts.prState} <> 'merged'`
+      )
+    )
     .orderBy(asc(attempts.createdAt), asc(attempts.id))
     .all();
 }
