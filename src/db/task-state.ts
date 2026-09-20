@@ -17,11 +17,20 @@ type TaskIdentityInput = {
   issueNumber: number;
 };
 
+function normalizeIdentity(input: TaskIdentityInput): TaskIdentityInput {
+  return {
+    repoOwner: input.repoOwner.toLowerCase(),
+    repoName: input.repoName.toLowerCase(),
+    issueNumber: input.issueNumber,
+  };
+}
+
 function identityWhere(input: TaskIdentityInput) {
+  const identity = normalizeIdentity(input);
   return and(
-    eq(tasks.repoOwner, input.repoOwner),
-    eq(tasks.repoName, input.repoName),
-    eq(tasks.issueNumber, input.issueNumber)
+    eq(tasks.repoOwner, identity.repoOwner),
+    eq(tasks.repoName, identity.repoName),
+    eq(tasks.issueNumber, identity.issueNumber)
   );
 }
 
@@ -59,24 +68,29 @@ function transitionAttempt(
     throw new InvalidTransitionError(attemptId, attempt.state, to);
   }
 
-  db.update(attempts)
+  const result = db
+    .update(attempts)
     .set({ ...fields, state: to, updatedAt: Date.now() })
-    .where(eq(attempts.id, attemptId))
+    .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
     .run();
+  if (result.changes !== 1) {
+    throw new InvalidTransitionError(attemptId, attempt.state, to);
+  }
   return requireAttempt(attemptId, db);
 }
 
 export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db = getDb()): Task {
   const timestamp = Date.now();
+  const identity = normalizeIdentity(input);
   const set: { updatedAt: number; title?: string | null } = { updatedAt: timestamp };
   if (input.title !== undefined) {
     set.title = input.title;
   }
   db.insert(tasks)
     .values({
-      repoOwner: input.repoOwner,
-      repoName: input.repoName,
-      issueNumber: input.issueNumber,
+      repoOwner: identity.repoOwner,
+      repoName: identity.repoName,
+      issueNumber: identity.issueNumber,
       title: input.title,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -87,7 +101,7 @@ export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db
     })
     .run();
 
-  const task = db.select().from(tasks).where(identityWhere(input)).get();
+  const task = db.select().from(tasks).where(identityWhere(identity)).get();
   if (!task) {
     throw new Error('Task could not be persisted');
   }
@@ -147,7 +161,14 @@ export function setPrUrl(attemptId: number, prUrl: string, db: Db = getDb()): At
   if (attempt.state === 'completed') {
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
-  db.update(attempts).set({ prUrl, updatedAt: Date.now() }).where(eq(attempts.id, attemptId)).run();
+  const result = db
+    .update(attempts)
+    .set({ prUrl, updatedAt: Date.now() })
+    .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
+    .run();
+  if (result.changes !== 1) {
+    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  }
   return requireAttempt(attemptId, db);
 }
 
@@ -156,6 +177,10 @@ export function completeAttempt(
   outcome: AttemptOutcome,
   db: Db = getDb()
 ): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (outcome === 'succeeded' && attempt.devinSessionId === null) {
+    throw new InvalidTransitionError(attemptId, attempt.state, 'completed');
+  }
   return transitionAttempt(
     attemptId,
     'completed',

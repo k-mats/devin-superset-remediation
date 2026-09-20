@@ -72,6 +72,10 @@ export const attempts = sqliteTable(
       'attempts_session_id_check',
       sql`${table.state} NOT IN ('session_created', 'running') OR ${table.devinSessionId} IS NOT NULL`
     ),
+    check(
+      'attempts_succeeded_session_check',
+      sql`${table.outcome} IS NULL OR ${table.outcome} <> 'succeeded' OR ${table.devinSessionId} IS NOT NULL`
+    ),
   ]
 );
 

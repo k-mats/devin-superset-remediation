@@ -4,7 +4,7 @@
 
 `pnpm db:generate` emitted `drizzle/0001_brave_red_hulk.sql` and the matching
 `drizzle/meta/0001_snapshot.json`. The migration contains the replacement
-schema, foreign key, unique indexes, all four CHECK constraints, and drops the
+schema, foreign key, unique indexes, all five CHECK constraints, and drops the
 placeholder `sessions` table:
 
 ````sql
@@ -27,7 +27,8 @@ CREATE TABLE `attempts` (
 	CONSTRAINT "attempts_state_check" CHECK("attempts"."state" IN ('pending', 'dispatching', 'session_created', 'running', 'completed')),
 	CONSTRAINT "attempts_outcome_check" CHECK("attempts"."outcome" IS NULL OR "attempts"."outcome" IN ('succeeded', 'failed', 'cancelled', 'escalated')),
 	CONSTRAINT "attempts_completed_outcome_check" CHECK(("attempts"."state" = 'completed') = ("attempts"."outcome" IS NOT NULL)),
-	CONSTRAINT "attempts_session_id_check" CHECK("attempts"."state" NOT IN ('session_created', 'running') OR "attempts"."devin_session_id" IS NOT NULL)
+	CONSTRAINT "attempts_session_id_check" CHECK("attempts"."state" NOT IN ('session_created', 'running') OR "attempts"."devin_session_id" IS NOT NULL),
+	CONSTRAINT "attempts_succeeded_session_check" CHECK("attempts"."outcome" IS NULL OR "attempts"."outcome" <> 'succeeded' OR "attempts"."devin_session_id" IS NOT NULL)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `attempts_correlation_id_unique` ON `attempts` (`correlation_id`);--> statement-breakpoint

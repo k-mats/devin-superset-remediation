@@ -136,6 +136,23 @@ describe('task state repository', () => {
     expect(listAttempts(second.id)).toEqual([]);
   });
 
+  it('normalizes repository identity', () => {
+    const first = upsertTask({
+      repoOwner: 'Acme',
+      repoName: 'Widget',
+      issueNumber: 12,
+    });
+    const second = upsertTask({
+      repoOwner: 'acme',
+      repoName: 'widget',
+      issueNumber: 12,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.repoOwner).toBe('acme');
+    expect(second.repoName).toBe('widget');
+  });
+
   it('rejects invalid transitions', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const attempt = createAttempt(task.id);
@@ -151,6 +168,33 @@ describe('task state repository', () => {
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
     expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
+  });
+
+  it('rejects stale completion and preserves the newer outcome', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    const sqlite = getRawDb();
+    if (!sqlite) {
+      throw new Error('Database not initialized');
+    }
+    sqlite
+      .prepare("UPDATE attempts SET state = 'completed', outcome = 'failed' WHERE id = ?")
+      .run(attempt.id);
+
+    expect(() => completeAttempt(attempt.id, 'succeeded')).toThrow(InvalidTransitionError);
+    expect(sqlite.prepare('SELECT outcome FROM attempts WHERE id = ?').get(attempt.id)).toEqual({
+      outcome: 'failed',
+    });
+  });
+
+  it('requires a session for succeeded attempts', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+
+    expect(() => completeAttempt(attempt.id, 'succeeded')).toThrow(InvalidTransitionError);
+    expect(completeAttempt(attempt.id, 'failed').outcome).toBe('failed');
   });
 
   it('enforces database constraints', () => {
@@ -237,6 +281,18 @@ describe('task state repository', () => {
     ).toThrow();
     expect(() =>
       insertAttempt.run(task.id, 9, randomUUID(), 'running', null, null, timestamp, timestamp)
+    ).toThrow();
+    expect(() =>
+      insertAttempt.run(
+        task.id,
+        10,
+        randomUUID(),
+        'completed',
+        'succeeded',
+        null,
+        timestamp,
+        timestamp
+      )
     ).toThrow();
   });
 

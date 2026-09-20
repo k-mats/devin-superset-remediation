@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "20dda431-961d-4c8f-8092-3341b48ba194",
+  "id": "8850f1e1-fd89-4f7f-962f-ae97649cfa38",
   "prevId": "d48bcee4-c8d9-4bbe-8d37-89af321290c5",
   "tables": {
     "attempts": {
@@ -164,6 +164,10 @@
         "attempts_session_id_check": {
           "name": "attempts_session_id_check",
           "value": "\"attempts\".\"state\" NOT IN ('session_created', 'running') OR \"attempts\".\"devin_session_id\" IS NOT NULL"
+        },
+        "attempts_succeeded_session_check": {
+          "name": "attempts_succeeded_session_check",
+          "value": "\"attempts\".\"outcome\" IS NULL OR \"attempts\".\"outcome\" <> 'succeeded' OR \"attempts\".\"devin_session_id\" IS NOT NULL"
         }
       }
     },
