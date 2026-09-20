@@ -5,7 +5,7 @@ import path from 'node:path';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { config } from '../src/config.js';
 import { attempts, tasks, type Attempt, type Task } from '../src/db/schema.js';
-import type { GitHubIssue } from '../src/github/client.js';
+import { GitHubApiError, type GitHubIssue } from '../src/github/client.js';
 import type { CreateSessionRequest, SessionResponse } from '../src/devin/client.js';
 
 type CreateSession = (req: CreateSessionRequest) => Promise<SessionResponse>;
@@ -226,13 +226,17 @@ describe('Devin dispatcher', () => {
     }
   );
 
-  it('fails the attempt without calling Devin when the eligibility check errors', async () => {
+  it('fails the attempt without calling Devin on a terminal eligibility error', async () => {
     await intakeIssueOnce();
     const { attempt, task } = pendingAttempt();
     const devin = fakeDevin();
     const opts = dispatchOptions({
       devin,
-      github: { getIssue: vi.fn(() => Promise.reject(new Error('boom'))) },
+      github: {
+        getIssue: vi.fn(() =>
+          Promise.reject(new GitHubApiError(404, 'GET', '/repos/owner/repo/issues/7', 'Not Found'))
+        ),
+      },
     });
 
     const decision = await dispatchAttempt(attempt, task, opts);
@@ -242,7 +246,55 @@ describe('Devin dispatcher', () => {
     const stored = getAttempt(attempt.id);
     expect(stored?.state).toBe('completed');
     expect(stored?.outcome).toBe('failed');
-    expect(stored?.outcomeReason).toMatch(/^eligibility_check_failed: boom/);
+    expect(stored?.outcomeReason).toMatch(/^eligibility_check_failed: /);
+  });
+
+  it.each<[string, Error]>([
+    ['500 response', new GitHubApiError(500, 'GET', '/x', 'oops')],
+    ['429 response', new GitHubApiError(429, 'GET', '/x', 'rate limited')],
+    ['network error', new Error('ECONNRESET')],
+    ['parse error', new Error('unexpected response')],
+  ])(
+    'releases the claim back to pending on a transient eligibility failure (%s)',
+    async (_label, error) => {
+      await intakeIssueOnce();
+      const { attempt, task } = pendingAttempt();
+      const devin = fakeDevin();
+      const dispatchLogger = logger();
+      const opts = dispatchOptions({
+        devin,
+        logger: dispatchLogger,
+        github: { getIssue: vi.fn(() => Promise.reject(error)) },
+      });
+
+      const decision = await dispatchAttempt(attempt, task, opts);
+
+      expect(decision).toBe('eligibility_check_deferred');
+      expect(devin.createSession).not.toHaveBeenCalled();
+      expect(getAttempt(attempt.id)).toMatchObject({ state: 'pending', dispatchedAt: null });
+      expect(dispatchLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ attempt_id: attempt.id, reason: 'eligibility_check_deferred' }),
+        'Released dispatch claim; eligibility check failed transiently and will be retried on the next poll'
+      );
+
+      const result = await runDispatchOnce(dispatchOptions({ devin }));
+      expect(result).toMatchObject({ pending: 1, dispatched: 1, deferred: 0 });
+      expect(devin.createSession).toHaveBeenCalledTimes(1);
+      expect(getAttempt(attempt.id)?.state).toBe('session_created');
+    }
+  );
+
+  it('counts deferred attempts in the dispatch summary', async () => {
+    await intakeIssueOnce();
+    const devin = fakeDevin();
+    const result = await runDispatchOnce(
+      dispatchOptions({
+        devin,
+        github: { getIssue: vi.fn(() => Promise.reject(new Error('ECONNRESET'))) },
+      })
+    );
+
+    expect(result).toMatchObject({ pending: 1, dispatched: 0, deferred: 1, failed: 0 });
   });
 
   it('leaves the attempt in dispatching when createSession fails', async () => {

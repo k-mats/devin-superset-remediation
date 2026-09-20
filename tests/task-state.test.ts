@@ -1,4 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
@@ -14,6 +20,7 @@ import {
   InvalidTransitionError,
   listAttempts,
   markDispatching,
+  releaseDispatchClaim,
   markRunning,
   markSessionCreated,
   setPrUrl,
@@ -365,6 +372,25 @@ describe('task state repository', () => {
     expect(claimAttemptForDispatch(attempt.id)).toBeUndefined();
   });
 
+  it('releases a dispatch claim back to pending only when no session exists', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const pending = createAttempt(task.id);
+
+    // Not yet claimed: nothing to release.
+    expect(releaseDispatchClaim(pending.id)).toBeUndefined();
+
+    const claimed = claimAttemptForDispatch(pending.id);
+    expect(claimed?.state).toBe('dispatching');
+    const released = releaseDispatchClaim(pending.id);
+    expect(released).toMatchObject({ state: 'pending', dispatchedAt: null });
+    expect(releaseDispatchClaim(pending.id)).toBeUndefined();
+
+    // A dispatching attempt that already carries a session id cannot be released.
+    claimAttemptForDispatch(pending.id);
+    getDb().update(attempts).set({ devinSessionId: 'in-flight' }).run();
+    expect(releaseDispatchClaim(pending.id)).toBeUndefined();
+  });
+
   it('rejects markDispatching on a non-pending attempt', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const attempt = createAttempt(task.id);
@@ -428,6 +454,127 @@ describe('task state repository', () => {
     expect(rows.map((row) => row.attempt.id)).toEqual([firstAttempt.id, thirdAttempt.id]);
     expect(rows[0]?.task.id).toBe(first.id);
     expect(rows[1]?.task.id).toBe(third.id);
+  });
+
+  it('migration 0002 demotes duplicate active attempts before creating the index', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-0002-'));
+    const sqlite = new Database(path.join(dir, 'legacy.db'));
+    try {
+      // Apply the pre-0002 schema by executing the migration files directly.
+      const journal = JSON.parse(
+        fs.readFileSync(path.join('drizzle', 'meta', '_journal.json'), 'utf8')
+      ) as { entries: Array<{ tag: string; when: number }> };
+      for (const entry of journal.entries.slice(0, 2)) {
+        const sqlText = fs.readFileSync(path.join('drizzle', `${entry.tag}.sql`), 'utf8');
+        for (const statement of sqlText.split('--> statement-breakpoint')) {
+          sqlite.exec(statement);
+        }
+      }
+      sqlite.exec(
+        'CREATE TABLE `__drizzle_migrations` (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)'
+      );
+      const recordApplied = sqlite.prepare(
+        'INSERT INTO `__drizzle_migrations` (hash, created_at) VALUES (?, ?)'
+      );
+      for (const entry of journal.entries.slice(0, 2)) {
+        recordApplied.run('manual', entry.when);
+      }
+
+      const timestamp = Date.now();
+      const insertTask = sqlite.prepare(
+        'INSERT INTO tasks (repo_owner, repo_name, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+      );
+      const insertAttempt = sqlite.prepare(
+        `INSERT INTO attempts
+          (task_id, attempt_number, correlation_id, state, devin_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      const taskA = Number(insertTask.run('o', 'r', 1, timestamp, timestamp).lastInsertRowid);
+      insertAttempt.run(taskA, 1, randomUUID(), 'dispatching', 'keep-me', timestamp, timestamp);
+      insertAttempt.run(taskA, 2, randomUUID(), 'dispatching', null, timestamp, timestamp);
+      const taskB = Number(insertTask.run('o', 'r', 2, timestamp, timestamp).lastInsertRowid);
+      const b1 = Number(
+        insertAttempt.run(taskB, 1, randomUUID(), 'pending', null, timestamp, timestamp)
+          .lastInsertRowid
+      );
+      const b2 = Number(
+        insertAttempt.run(taskB, 2, randomUUID(), 'pending', null, timestamp, timestamp)
+          .lastInsertRowid
+      );
+      const taskC = Number(insertTask.run('o', 'r', 3, timestamp, timestamp).lastInsertRowid);
+      const c1 = Number(
+        insertAttempt.run(taskC, 1, randomUUID(), 'pending', null, timestamp, timestamp)
+          .lastInsertRowid
+      );
+      const taskD = Number(insertTask.run('o', 'r', 4, timestamp, timestamp).lastInsertRowid);
+      const d1 = Number(
+        insertAttempt.run(
+          taskD,
+          1,
+          randomUUID(),
+          'session_created',
+          'sess-d1',
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+      );
+      const d2 = Number(
+        insertAttempt.run(
+          taskD,
+          2,
+          randomUUID(),
+          'session_created',
+          'sess-d2',
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+      );
+
+      // The drizzle migrator must split 0002 on statement breakpoints and apply it.
+      migrate(drizzle(sqlite), { migrationsFolder: './drizzle' });
+
+      type Row = {
+        id: number;
+        task_id: number;
+        state: string;
+        outcome: string | null;
+        outcome_reason: string | null;
+        devin_session_id: string | null;
+      };
+      const rowsOf = (taskId: number) =>
+        sqlite
+          .prepare(
+            'SELECT id, task_id, state, outcome, outcome_reason, devin_session_id FROM attempts WHERE task_id = ? ORDER BY id'
+          )
+          .all(taskId) as Row[];
+
+      const rowsA = rowsOf(taskA);
+      expect(rowsA[0]).toMatchObject({ state: 'dispatching', devin_session_id: 'keep-me' });
+      expect(rowsA[1]).toMatchObject({
+        state: 'completed',
+        outcome: 'cancelled',
+        outcome_reason: 'migration_0002_duplicate_active_attempt',
+      });
+
+      const rowsB = rowsOf(taskB);
+      expect(rowsB.find((row) => row.id === b1)?.state).toBe('completed');
+      expect(rowsB.find((row) => row.id === b2)?.state).toBe('pending');
+
+      const rowsD = rowsOf(taskD);
+      expect(rowsD.find((row) => row.id === d2)?.state).toBe('session_created');
+      expect(rowsD.find((row) => row.id === d1)).toMatchObject({
+        state: 'completed',
+        outcome: 'cancelled',
+        devin_session_id: 'sess-d1',
+      });
+
+      expect(rowsOf(taskC)).toEqual([
+        expect.objectContaining({ id: c1, state: 'pending', outcome: null }),
+      ]);
+    } finally {
+      sqlite.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('finds only dispatching attempts without sessions', () => {
