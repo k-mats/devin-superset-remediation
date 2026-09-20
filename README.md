@@ -81,6 +81,23 @@ DATABASE_PATH=./database.db
 LOG_LEVEL=info
 ```
 
+### GitHub intake (Issue #7)
+
+The service periodically polls the configured Superset fork for open issues
+with the configured intake label. Eligible issues are ordinary (non-PR) issues
+whose response state is `open` and that carry the label; each issue is persisted
+as a task with its first pending attempt. Existing attempt history is never
+retried implicitly, and GitHub failures leave task state unchanged.
+
+Configure `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, and
+`GITHUB_INTAKE_LABEL` (default `devin-ready`). `GITHUB_POLL_INTERVAL_MS`
+defaults to 60000 milliseconds; set it to `0` to disable polling. Run a single
+intake pass and print the result and persisted rows with:
+
+```bash
+pnpm demo:intake
+```
+
 ### Devin API smoke test (Issue #5)
 
 A reusable Devin v3 Organization API client lives in `src/devin/client.ts`. To

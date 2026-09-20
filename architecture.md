@@ -18,9 +18,9 @@ verification/reporting
 
 ### GitHub Issue/Event Source
 
-- GitHub webhook or event polling mechanism
-- Triggers when issues are created or updated
-- TBD - webhook vs polling decision
+- GitHub issue polling is the initial integration mechanism.
+- The poller periodically requests open issues carrying the configured
+  `devin-ready` label.
 
 ### Orchestrator
 
@@ -81,9 +81,17 @@ The following have been selected:
 - **Formatting**: Prettier
 - **Deployment method**: Docker with Node 24.21.0 Alpine base image
 
+### Intake
+
+The intake poller accepts only open, labeled issues that are not pull
+requests. It persists each issue by repository identity and creates one first
+pending attempt. Existing attempt history, including active and completed
+attempts, is never treated as an implicit retry. A GitHub or response parsing
+failure is logged and returned to the caller without changing task state; the
+next scheduled poll can retry the fetch.
+
 ### TBD (Still to be determined)
 
-- GitHub integration method (webhook vs polling)
 - Authentication method for Devin API
 - Observability stack (logging, metrics)
 - Message queue (if needed for scaling)
