@@ -2,9 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
 import type { DevinClient, SessionResponse } from '../src/devin/client.js';
+import type { StructuredOutput } from '../src/devin/structured-output.js';
 import {
   InvalidTransitionError,
   completeAttempt,
+  recordStructuredOutput,
   createAttempt,
   getAttempt,
   markDispatching,
@@ -33,7 +35,7 @@ function session(overrides: Partial<SessionResponse> = {}): SessionResponse {
   };
 }
 
-const validOutput = {
+const validOutput: StructuredOutput = {
   schema_version: 1,
   outcome: 'remediated',
   pr_url: 'https://github.com/owner/repo/pull/9',
@@ -240,6 +242,36 @@ describe('collectStructuredOutput', () => {
 
     expect(second.decision).toBe('already_recorded');
     expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it('returns already_recorded when another writer accepted output mid-collection', async () => {
+    // The attempt object is stale: it still shows acceptedAt null, but a
+    // concurrent collector already accepted output by the time we write.
+    const staleAttempt = activeAttempt();
+    const getSession = vi.fn<DevinClient['getSession']>(() =>
+      Promise.resolve(session({ structured_output: { outcome: 'bogus' } }))
+    );
+
+    const result = await collectStructuredOutput(staleAttempt, {
+      devin: {
+        getSession: (sessionId: string) => {
+          recordStructuredOutput(staleAttempt.id, { raw: validOutput, parsed: validOutput });
+          return getSession(sessionId);
+        },
+      },
+      logger: logger(),
+    });
+
+    expect(result.decision).toBe('already_recorded');
+    expect(getSession).toHaveBeenCalledTimes(1);
+    const stored = getAttempt(staleAttempt.id);
+    expect(stored).toMatchObject({
+      state: 'session_created',
+      outcome: null,
+      agentOutcome: 'remediated',
+      agentPrUrl: 'https://github.com/owner/repo/pull/9',
+    });
+    expect(JSON.parse(stored?.structuredOutputRaw as string)).toEqual(validOutput);
   });
 
   it('rolls back the raw write when another writer completes the attempt mid-collection', async () => {

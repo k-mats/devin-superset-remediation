@@ -5,7 +5,12 @@ import type { StructuredOutput } from '../devin/structured-output.js';
 import { parseStructuredOutput } from '../devin/structured-output.js';
 import { getDb } from '../db/client.js';
 import type { Attempt } from '../db/schema.js';
-import { completeAttempt, recordStructuredOutput, type Db } from '../db/task-state.js';
+import {
+  StructuredOutputAlreadyAcceptedError,
+  completeAttempt,
+  recordStructuredOutput,
+  type Db,
+} from '../db/task-state.js';
 
 export type OutcomeCollectionDecision =
   | 'no_session'
@@ -87,19 +92,27 @@ export async function collectStructuredOutput(
   }
   if (phase === 'error') {
     const parsed = parseStructuredOutput(session.structured_output);
-    db.transaction((tx) => {
-      recordStructuredOutput(
-        attempt.id,
-        { raw: session.structured_output, parsed: parsed.ok ? parsed.value : undefined },
-        tx
-      );
-      completeAttempt(
-        attempt.id,
-        'escalated',
-        { reason: `session_error: ${session.status_detail ?? 'unknown'}` },
-        tx
-      );
-    });
+    try {
+      db.transaction((tx) => {
+        recordStructuredOutput(
+          attempt.id,
+          { raw: session.structured_output, parsed: parsed.ok ? parsed.value : undefined },
+          tx
+        );
+        completeAttempt(
+          attempt.id,
+          'escalated',
+          { reason: `session_error: ${session.status_detail ?? 'unknown'}` },
+          tx
+        );
+      });
+    } catch (error: unknown) {
+      if (error instanceof StructuredOutputAlreadyAcceptedError) {
+        opts.logger.warn(phaseContext, 'Structured output already accepted; skipping escalation');
+        return { decision: 'already_recorded', phase, session };
+      }
+      throw error;
+    }
     opts.logger.warn(
       { ...phaseContext, status_detail: session.status_detail },
       'Devin session ended in error; escalated attempt'
@@ -109,11 +122,19 @@ export async function collectStructuredOutput(
 
   const parsed = parseStructuredOutput(session.structured_output);
   if (parsed.ok) {
-    recordStructuredOutput(
-      attempt.id,
-      { raw: session.structured_output, parsed: parsed.value },
-      db
-    );
+    try {
+      recordStructuredOutput(
+        attempt.id,
+        { raw: session.structured_output, parsed: parsed.value },
+        db
+      );
+    } catch (error: unknown) {
+      if (error instanceof StructuredOutputAlreadyAcceptedError) {
+        opts.logger.warn(phaseContext, 'Structured output already accepted; skipping record');
+        return { decision: 'already_recorded', phase, session };
+      }
+      throw error;
+    }
     opts.logger.info(
       { ...phaseContext, agent_outcome: parsed.value.outcome, pr_url: parsed.value.pr_url },
       'Recorded structured output from Devin session'
@@ -121,10 +142,23 @@ export async function collectStructuredOutput(
     return { decision: 'recorded', phase, session, output: parsed.value };
   }
 
-  db.transaction((tx) => {
-    recordStructuredOutput(attempt.id, { raw: session.structured_output, parsed: undefined }, tx);
-    completeAttempt(attempt.id, 'escalated', { reason: `${parsed.reason}: ${parsed.message}` }, tx);
-  });
+  try {
+    db.transaction((tx) => {
+      recordStructuredOutput(attempt.id, { raw: session.structured_output, parsed: undefined }, tx);
+      completeAttempt(
+        attempt.id,
+        'escalated',
+        { reason: `${parsed.reason}: ${parsed.message}` },
+        tx
+      );
+    });
+  } catch (error: unknown) {
+    if (error instanceof StructuredOutputAlreadyAcceptedError) {
+      opts.logger.warn(phaseContext, 'Structured output already accepted; skipping escalation');
+      return { decision: 'already_recorded', phase, session };
+    }
+    throw error;
+  }
   opts.logger.warn(
     { ...phaseContext, reason: parsed.reason },
     'Devin session finished without valid structured output; escalated attempt'

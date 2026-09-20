@@ -259,7 +259,7 @@ export function recordStructuredOutput(
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
   const parsed = input.parsed;
-  if (parsed !== undefined && attempt.structuredOutputAcceptedAt !== null) {
+  if (attempt.structuredOutputAcceptedAt !== null) {
     throw new StructuredOutputAlreadyAcceptedError(attemptId);
   }
   const set: Partial<typeof attempts.$inferInsert> = {
@@ -273,18 +273,23 @@ export function recordStructuredOutput(
     needsHumanReason: parsed?.needs_human_reason ?? null,
     updatedAt: Date.now(),
   };
-  const where = [eq(attempts.id, attemptId), eq(attempts.state, attempt.state)];
   if (parsed !== undefined) {
     set.structuredOutputAcceptedAt = Date.now();
-    where.push(isNull(attempts.structuredOutputAcceptedAt));
   }
   const result = db
     .update(attempts)
     .set(set)
-    .where(and(...where))
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        eq(attempts.state, attempt.state),
+        isNull(attempts.structuredOutputAcceptedAt)
+      )
+    )
     .run();
   if (result.changes !== 1) {
-    if (parsed !== undefined) {
+    const current = db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
+    if (current !== undefined && current.structuredOutputAcceptedAt !== null) {
       throw new StructuredOutputAlreadyAcceptedError(attemptId);
     }
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);

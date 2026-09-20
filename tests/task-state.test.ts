@@ -240,13 +240,16 @@ describe('task state repository', () => {
     const stored = listAttempts(task.id)[0];
     expect(stored?.agentOutcome).toBe('no_action');
     expect(stored?.structuredOutputAcceptedAt).toBe(recorded.structuredOutputAcceptedAt);
-    // Evidence-only writes (no parsed value) remain allowed.
-    const evidenceOnly = recordStructuredOutput(attempt.id, {
-      raw: { partial: true },
-      parsed: undefined,
-    });
-    expect(evidenceOnly.agentOutcome).toBeNull();
-    expect(evidenceOnly.structuredOutputAcceptedAt).toBe(recorded.structuredOutputAcceptedAt);
+
+    // Evidence-only writes after acceptance are also rejected, so a stale
+    // reader cannot wipe the accepted agent fields.
+    expect(() =>
+      recordStructuredOutput(attempt.id, { raw: { partial: true }, parsed: undefined })
+    ).toThrow(StructuredOutputAlreadyAcceptedError);
+    const after = listAttempts(task.id)[0];
+    expect(after?.agentOutcome).toBe('no_action');
+    expect(after?.structuredOutputRaw).toBe(recorded.structuredOutputRaw);
+    expect(after?.state).toBe('session_created');
   });
 
   it('rejects stale completion and preserves the newer outcome', () => {
