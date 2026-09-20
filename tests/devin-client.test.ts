@@ -107,6 +107,13 @@ describe('DevinClient', () => {
     await expect(client.getSession('devin-abc')).rejects.toThrow(/unexpected response/i);
   });
 
+  it('rejects when status is not a known enum value', async () => {
+    const fetchFn = mockFetch({ ...sessionJson, status: 'bogus' });
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    await expect(client.getSession('devin-abc')).rejects.toThrow(/unexpected response/i);
+  });
+
   it('passes an AbortSignal to fetch so requests are time-bounded', async () => {
     const fetchFn = mockFetch();
     const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });

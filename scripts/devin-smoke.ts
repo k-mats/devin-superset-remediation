@@ -1,23 +1,35 @@
 import 'dotenv/config';
 import { writeFile } from 'node:fs/promises';
 import { config } from '../src/config.js';
-import { createDevinClientFromConfig, type SessionResponse } from '../src/devin/client.js';
+import {
+  createDevinClientFromConfig,
+  type SessionResponse,
+  type SessionStatus,
+  type SessionStatusDetail,
+} from '../src/devin/client.js';
 
 const POLL_TIMEOUT_MS = Number(process.env['SMOKE_POLL_TIMEOUT_MS'] ?? 5 * 60 * 1000);
 const POLL_INTERVAL_MS = Number(process.env['SMOKE_POLL_INTERVAL_MS'] ?? 10 * 1000);
 const OUTPUT_PATH = process.env['SMOKE_OUTPUT_PATH'];
 
-// v3 `status` enum: new, claimed, running, exit, error, suspended, resuming.
-// A running session that is waiting on the user has finished its turn, so stop polling there too.
-const NON_TERMINAL_STATUSES = new Set(['new', 'claimed', 'running', 'resuming']);
-const IDLE_STATUS_DETAILS = new Set(['waiting_for_user', 'waiting_for_approval', 'finished']);
-// Success requires the session to have actually completed its turn: either an
-// `exit` status or a status_detail showing it finished or is waiting on the user.
-const SUCCESS_STATUSES = new Set(['exit']);
-const SUCCESS_STATUS_DETAILS = new Set(['waiting_for_user', 'finished']);
+// Poll until `status` leaves the active set or `status_detail` shows the turn is done.
+const NON_TERMINAL_STATUSES = new Set<SessionStatus>(['new', 'claimed', 'running', 'resuming']);
+// Success requires a completed turn: `exit` status or a finished/waiting detail.
+const SUCCESS_STATUSES = new Set<SessionStatus>(['exit']);
+const SUCCESS_STATUS_DETAILS = new Set<SessionStatusDetail>(['waiting_for_user', 'finished']);
+const TERMINAL_STATUS_DETAILS = new Set<SessionStatusDetail>([
+  ...SUCCESS_STATUS_DETAILS,
+  'waiting_for_approval',
+]);
+
+type LifecycleEntry = {
+  status: SessionStatus;
+  status_detail: SessionStatusDetail | null;
+  observed_at: string;
+};
 
 function isTerminal(session: SessionResponse): boolean {
-  if (session.status_detail && IDLE_STATUS_DETAILS.has(session.status_detail)) {
+  if (session.status_detail && TERMINAL_STATUS_DETAILS.has(session.status_detail)) {
     return true;
   }
   return !NON_TERMINAL_STATUSES.has(session.status);
@@ -59,6 +71,16 @@ async function main(): Promise<number> {
   console.error(`session_id: ${session.session_id}`);
   console.error(`url: ${session.url}`);
 
+  const lifecycle: LifecycleEntry[] = [];
+  const observe = (s: SessionResponse) => {
+    lifecycle.push({
+      status: s.status,
+      status_detail: s.status_detail ?? null,
+      observed_at: new Date().toISOString(),
+    });
+  };
+  observe(session);
+
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let current = session;
   // Terminal state only counts if it was observed before the deadline.
@@ -68,6 +90,7 @@ async function main(): Promise<number> {
     if (remaining <= 0) break;
     await sleep(Math.min(POLL_INTERVAL_MS, remaining));
     current = await client.getSession(session.session_id);
+    observe(current);
     console.error(`status: ${current.status} (detail: ${current.status_detail ?? 'n/a'})`);
     terminalByDeadline = isTerminal(current) && Date.now() < deadline;
   }
@@ -76,6 +99,7 @@ async function main(): Promise<number> {
 
   // Always do one final fetch for the freshest state.
   current = await client.getSession(session.session_id);
+  observe(current);
 
   const failed = current.status === 'error' || current.status === 'suspended';
   const completed =
@@ -91,6 +115,7 @@ async function main(): Promise<number> {
     timedOut,
     failed,
     completed,
+    lifecycle,
   };
   console.log(JSON.stringify(summary, null, 2));
 

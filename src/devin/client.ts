@@ -4,15 +4,59 @@ import type { Config } from '../config.js';
 const DEFAULT_BASE_URL = 'https://api.devin.ai/v3';
 const MAX_ERROR_BODY_LENGTH = 500;
 
+// Enums per the v3 OpenAPI spec (SessionResponse).
+export const SESSION_STATUSES = [
+  'new',
+  'claimed',
+  'running',
+  'exit',
+  'error',
+  'suspended',
+  'resuming',
+] as const;
+export const SESSION_STATUS_DETAILS = [
+  'working',
+  'waiting_for_user',
+  'waiting_for_approval',
+  'finished',
+  'inactivity',
+  'user_request',
+  'usage_limit_exceeded',
+  'out_of_credits',
+  'out_of_quota',
+  'no_quota_allocation',
+  'payment_declined',
+  'org_usage_limit_exceeded',
+  'user_usage_limit_exceeded',
+  'total_session_limit_exceeded',
+  'error',
+] as const;
+export const SESSION_ORIGINS = [
+  'webapp',
+  'slack',
+  'teams',
+  'api',
+  'linear',
+  'jira',
+  'automation',
+  'cli',
+  'desktop',
+  'code_scan',
+  'other',
+] as const;
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+export type SessionStatusDetail = (typeof SESSION_STATUS_DETAILS)[number];
+export type SessionOrigin = (typeof SESSION_ORIGINS)[number];
+
 export const sessionResponseSchema = z
   .object({
     session_id: z.string(),
     url: z.string(),
-    status: z.string(),
-    status_detail: z.string().nullish(),
+    status: z.enum(SESSION_STATUSES),
+    status_detail: z.enum(SESSION_STATUS_DETAILS).nullish(),
     title: z.string().nullish(),
     tags: z.array(z.string()).default([]),
-    origin: z.string().nullish(),
+    origin: z.enum(SESSION_ORIGINS).nullish(),
     service_user_id: z.string().nullish(),
     user_id: z.string().nullish(),
     org_id: z.string(),

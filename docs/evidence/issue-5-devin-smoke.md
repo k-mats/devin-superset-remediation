@@ -85,6 +85,11 @@ Summary printed by the script (`SMOKE_OUTPUT_PATH` JSON):
 }
 ```
 
+The `lifecycle` field (an array of `{status, status_detail, observed_at}` per
+observation) was added after this run was recorded, so no timestamps are shown
+here; the observed sequence for the recorded run was `running/working` →
+`running/waiting_for_user`.
+
 ## Observations for the main workflow
 
 - `POST .../sessions` returns the full `SessionResponse` (including `session_id` and `url`) synchronously, so the session ID can be persisted before any polling.
