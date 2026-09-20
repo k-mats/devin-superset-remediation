@@ -25,6 +25,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     nodeEnv: 'test',
     databasePath: './data/test.db',
     logLevel: 'info',
+    githubIntakeLabel: 'devin-ready',
+    githubPollIntervalMs: 0,
     devinApiKey: 'test-key',
     devinOrgId: 'org_123',
     devinApiUrl: 'https://api.devin.ai/v3',
