@@ -4,8 +4,10 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
 import { closeDb, runMigrations } from './db/client.js';
-import { createGitHubClientFromConfig } from './github/client.js';
+import { createGitHubClientFromConfig, type GitHubClient } from './github/client.js';
+import { createDevinClientFromConfig } from './devin/client.js';
 import { startIntakePoller } from './intake/github-intake.js';
+import { startDispatchPoller } from './dispatch/devin-dispatcher.js';
 
 export async function buildServer() {
   // Bring the schema up to date before the server can accept traffic.
@@ -19,6 +21,12 @@ export async function buildServer() {
   });
 
   await server.register(healthRoutes);
+
+  let githubClient: GitHubClient | undefined;
+  const getGitHubClient = () => {
+    githubClient ??= createGitHubClientFromConfig(config);
+    return githubClient;
+  };
 
   let stopIntakePoller: (() => Promise<void>) | undefined;
   if (config.githubPollIntervalMs === 0) {
@@ -37,9 +45,8 @@ export async function buildServer() {
         'GitHub intake polling skipped because configuration is incomplete'
       );
     } else {
-      const client = createGitHubClientFromConfig(config);
       const poller = startIntakePoller({
-        client,
+        client: getGitHubClient(),
         repoOwner,
         repoName,
         label: config.githubIntakeLabel,
@@ -52,8 +59,39 @@ export async function buildServer() {
     }
   }
 
+  let stopDispatchPoller: (() => Promise<void>) | undefined;
+  if (config.devinDispatchIntervalMs === 0) {
+    server.log.info('Devin dispatch polling disabled');
+  } else {
+    const missing: string[] = [];
+    if (!config.githubToken) missing.push('GITHUB_TOKEN');
+    if (!config.githubRepoOwner) missing.push('GITHUB_REPO_OWNER');
+    if (!config.githubRepoName) missing.push('GITHUB_REPO_NAME');
+    if (!config.devinApiKey) missing.push('DEVIN_API_KEY');
+    if (!config.devinOrgId) missing.push('DEVIN_ORG_ID');
+    if (missing.length > 0) {
+      server.log.warn(
+        { missing },
+        'Devin dispatch polling skipped because configuration is incomplete'
+      );
+    } else {
+      const poller = startDispatchPoller({
+        github: getGitHubClient(),
+        devin: createDevinClientFromConfig(config),
+        label: config.githubIntakeLabel,
+        maxAcuPerSession: config.devinMaxAcuPerSession,
+        intervalMs: config.devinDispatchIntervalMs,
+        logger: server.log,
+      });
+      stopDispatchPoller = () => {
+        return poller.stop();
+      };
+    }
+  }
+
   server.addHook('preClose', async () => {
     await stopIntakePoller?.();
+    await stopDispatchPoller?.();
   });
 
   // Clean up resources whenever the Fastify instance is closed.
