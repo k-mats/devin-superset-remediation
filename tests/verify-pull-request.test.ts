@@ -16,6 +16,7 @@ const task = {
   createdAt: 0,
   updatedAt: 0,
 };
+const qualifiedTask = { ...task, repoOwner: 'k-mats', repoName: 'superset' };
 
 function pullRequest(overrides: Partial<GitHubPullRequest> = {}): GitHubPullRequest {
   return {
@@ -45,6 +46,12 @@ describe('verify pull request', () => {
     expect(referencesIssue({ title: 'Fix #11', body: null }, task)).toBe(true);
     expect(referencesIssue({ title: 'Fix #110', body: null }, task)).toBe(false);
     expect(referencesIssue({ title: 'See owner/repo#11', body: null }, task)).toBe(true);
+    expect(
+      referencesIssue({ title: '', body: 'see other-k-mats/superset#11' }, qualifiedTask)
+    ).toBe(false);
+    expect(referencesIssue({ title: '', body: 'see k-mats/superset#11' }, qualifiedTask)).toBe(
+      true
+    );
     expect(
       referencesIssue({ title: 'See https://github.com/OWNER/REPO/issues/11', body: null }, task)
     ).toBe(true);

@@ -25,7 +25,7 @@ export function referencesIssue(
   const owner = escapeRegex(task.repoOwner);
   const repo = escapeRegex(task.repoName);
   const pattern = new RegExp(
-    `(^|[^\\w/])#${number}\\b|(?:^|[^\\w/])${owner}\\/${repo}#${number}\\b|https:\\/\\/github\\.com\\/${owner}\\/${repo}\\/issues\\/${number}\\b`,
+    `(^|[^\\w/])#${number}\\b|(?:^|[^\\w/.-])${owner}\\/${repo}#${number}\\b|https:\\/\\/github\\.com\\/${owner}\\/${repo}\\/issues\\/${number}\\b`,
     'i'
   );
   return pattern.test(pr.title) || pattern.test(pr.body ?? '');
