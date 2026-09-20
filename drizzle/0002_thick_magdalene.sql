@@ -1,0 +1,2 @@
+ALTER TABLE `attempts` ADD `outcome_reason` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `attempts_task_active_unique` ON `attempts` (`task_id`) WHERE "attempts"."state" IN ('pending', 'dispatching', 'session_created', 'running');

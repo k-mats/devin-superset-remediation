@@ -15,6 +15,13 @@
       "when": 1789910791145,
       "tag": "0001_nosy_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789918169472,
+      "tag": "0002_thick_magdalene",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { GitHubClient, GitHubIssue } from '../github/client.js';
 import { getDb } from '../db/client.js';
 import {
+  ActiveAttemptExistsError,
   createAttempt,
   getTaskByIdentity,
   listAttempts,
@@ -9,7 +10,8 @@ import {
   type Db,
 } from '../db/task-state.js';
 
-export type IntakeDecision = 'created' | 'skipped_existing_attempt' | 'skipped_ineligible';
+export type IntakeDecision =
+  'created' | 'skipped_existing_attempt' | 'skipped_active_attempt_conflict' | 'skipped_ineligible';
 
 export interface IntakeResult {
   fetched: number;
@@ -41,27 +43,34 @@ export function intakeIssue(
   identity: { repoOwner: string; repoName: string },
   db: Db = getDb()
 ): IntakeDecision {
-  return db.transaction((tx) => {
-    const taskIdentity = {
-      repoOwner: identity.repoOwner,
-      repoName: identity.repoName,
-      issueNumber: issue.number,
-    };
-    const transactionDb = tx as unknown as Db;
-    const existing = getTaskByIdentity(taskIdentity, transactionDb);
-    if (!existing) {
-      const task = upsertTask({ ...taskIdentity, title: issue.title }, transactionDb);
-      createAttempt(task.id, transactionDb);
-      return 'created';
-    }
+  try {
+    return db.transaction((tx) => {
+      const taskIdentity = {
+        repoOwner: identity.repoOwner,
+        repoName: identity.repoName,
+        issueNumber: issue.number,
+      };
+      const existing = getTaskByIdentity(taskIdentity, tx);
+      if (!existing) {
+        const task = upsertTask({ ...taskIdentity, title: issue.title }, tx);
+        createAttempt(task.id, tx);
+        return 'created';
+      }
 
-    if (listAttempts(existing.id, transactionDb).length === 0) {
-      createAttempt(existing.id, transactionDb);
-      return 'created';
-    }
+      if (listAttempts(existing.id, tx).length === 0) {
+        createAttempt(existing.id, tx);
+        return 'created';
+      }
 
-    return 'skipped_existing_attempt';
-  });
+      return 'skipped_existing_attempt';
+    });
+  } catch (error: unknown) {
+    if (error instanceof ActiveAttemptExistsError) {
+      // A concurrent intake won the race; the rolled-back transaction changed nothing.
+      return 'skipped_active_attempt_conflict';
+    }
+    throw error;
+  }
 }
 
 export async function runIntakeOnce(opts: GitHubIntakeOptions): Promise<IntakeResult> {
@@ -115,8 +124,12 @@ export async function runIntakeOnce(opts: GitHubIntakeOptions): Promise<IntakeRe
       );
     } else {
       result.skipped += 1;
-      opts.logger.debug(
-        { issue_number: issue.number, title: issue.title, html_url: issue.html_url },
+      const reason =
+        decision === 'skipped_active_attempt_conflict'
+          ? 'active_attempt_conflict'
+          : 'existing_attempt';
+      opts.logger.info(
+        { issue_number: issue.number, title: issue.title, html_url: issue.html_url, reason },
         'Skipped GitHub issue with existing attempt history'
       );
     }

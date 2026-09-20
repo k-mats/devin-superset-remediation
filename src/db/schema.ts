@@ -46,6 +46,7 @@ export const attempts = sqliteTable(
     correlationId: text('correlation_id').notNull().unique(),
     state: text('state').$type<AttemptState>().notNull().default('pending'),
     outcome: text('outcome').$type<AttemptOutcome>(),
+    outcomeReason: text('outcome_reason'),
     devinSessionId: text('devin_session_id').unique(),
     devinSessionUrl: text('devin_session_url'),
     prUrl: text('pr_url'),
@@ -57,6 +58,9 @@ export const attempts = sqliteTable(
   },
   (table) => [
     uniqueIndex('attempts_task_attempt_unique').on(table.taskId, table.attemptNumber),
+    uniqueIndex('attempts_task_active_unique')
+      .on(table.taskId)
+      .where(sql`${table.state} IN ('pending', 'dispatching', 'session_created', 'running')`),
     check('attempts_attempt_number_check', sql`${table.attemptNumber} > 0`),
     check(
       'attempts_state_check',
