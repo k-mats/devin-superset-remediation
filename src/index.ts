@@ -15,6 +15,7 @@ export async function buildServer() {
     logger: {
       level: config.logLevel,
     },
+    forceCloseConnections: true,
   });
 
   await server.register(healthRoutes);
@@ -51,9 +52,12 @@ export async function buildServer() {
     }
   }
 
-  // Clean up resources whenever the Fastify instance is closed.
-  server.addHook('onClose', async () => {
+  server.addHook('preClose', async () => {
     await stopIntakePoller?.();
+  });
+
+  // Clean up resources whenever the Fastify instance is closed.
+  server.addHook('onClose', () => {
     closeDb();
   });
 
