@@ -29,7 +29,7 @@ describe('Startup on a fresh database', () => {
 
     try {
       const table = getRawDb()
-        ?.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions'")
+        ?.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks'")
         .get();
       expect(table).toBeDefined();
 

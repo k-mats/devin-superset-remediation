@@ -1,67 +1,34 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { getDb, closeDb, runMigrations } from '../src/db/client.js';
-import { sessions } from '../src/db/schema.js';
-import { eq } from 'drizzle-orm';
-import fs from 'fs';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import { closeDb, getRawDb, runMigrations } from '../src/db/client.js';
 
-describe('Database Integration', () => {
+describe('Database migration', () => {
   beforeAll(() => {
     runMigrations();
   });
 
   afterAll(() => {
     closeDb();
-    // Clean up test database file
-    if (fs.existsSync('./test-database.db')) {
-      fs.unlinkSync('./test-database.db');
+    for (const suffix of ['', '-shm', '-wal']) {
+      const path = `./test-database.db${suffix}`;
+      if (fs.existsSync(path)) {
+        fs.unlinkSync(path);
+      }
     }
   });
 
-  beforeEach(async () => {
-    // Clean up database before each test to avoid interference
-    const db = getDb();
-    await db.delete(sessions);
-  });
+  it('creates task state tables with foreign keys enabled', () => {
+    const sqlite = getRawDb();
+    if (!sqlite) {
+      throw new Error('Database not initialized');
+    }
 
-  it('should successfully insert and query a session', async () => {
-    const db = getDb();
-
-    // Insert a test session
-    const insertResult = await db
-      .insert(sessions)
-      .values({
-        createdAt: Date.now(),
-        status: 'test',
-      })
-      .returning();
-
-    expect(insertResult).toBeDefined();
-    expect(insertResult.length).toBeGreaterThan(0);
-
-    // Query the inserted session
-    const result = await db.select().from(sessions).where(eq(sessions.status, 'test'));
-
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0]).toHaveProperty('status', 'test');
-  });
-
-  it('should handle database read/write round trip', async () => {
-    const db = getDb();
-
-    const testTimestamp = Date.now();
-    const testStatus = 'roundtrip_test';
-
-    // Write
-    await db.insert(sessions).values({
-      createdAt: testTimestamp,
-      status: testStatus,
-    });
-
-    // Read
-    const result = await db.select().from(sessions).where(eq(sessions.status, testStatus));
-
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0]?.createdAt).toBe(testTimestamp);
-    expect(result[0]?.status).toBe(testStatus);
+    const tables = sqlite
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'attempts') ORDER BY name"
+      )
+      .all() as Array<{ name: string }>;
+    expect(tables.map((table) => table.name)).toEqual(['attempts', 'tasks']);
+    expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
   });
 });
