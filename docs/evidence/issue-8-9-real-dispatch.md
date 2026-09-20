@@ -42,8 +42,10 @@ Created session: `08366afe92f34d2885233f2340935399`
 tags `devin-superset-remediation`, `task:1`, `attempt:1`,
 `correlation:e0565681-...`, `issue:k-mats/superset#1`.
 
-Observation: the request body included `max_acu_limit: 5`, but the GET
-response reported `max_acu_limit: null`. Not investigated further here.
+Note: the Get Session response does not include `max_acu_limit` (the
+documented response exposes `acus_consumed` instead; it was `0.0` right after
+creation), so the configured limit of 5 cannot be confirmed from the GET
+response. The request body did include `max_acu_limit: 5`.
 
 ## Raw log (tokens redacted)
 
