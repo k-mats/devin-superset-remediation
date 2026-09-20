@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { DevinClient } from '../devin/client.js';
+import { GitHubApiError } from '../github/client.js';
 import type { GitHubClient, GitHubIssue } from '../github/client.js';
 import { getDb } from '../db/client.js';
 import type { Attempt, Task } from '../db/schema.js';
@@ -8,6 +9,7 @@ import {
   completeAttempt,
   findPendingAttempts,
   markSessionCreated,
+  releaseDispatchClaim,
   type Db,
 } from '../db/task-state.js';
 import { isEligibleIssue } from '../intake/github-intake.js';
@@ -17,6 +19,7 @@ export type DispatchDecision =
   | 'claim_lost'
   | 'cancelled_ineligible'
   | 'failed_eligibility_check'
+  | 'eligibility_check_deferred'
   | 'session_create_failed';
 
 export interface DispatchResult {
@@ -24,6 +27,7 @@ export interface DispatchResult {
   dispatched: number;
   claimLost: number;
   cancelled: number;
+  deferred: number;
   failed: number;
 }
 
@@ -81,13 +85,31 @@ export async function dispatchAttempt(
   try {
     issue = await opts.github.getIssue(task.repoOwner, task.repoName, task.issueNumber);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    opts.logger.error(
-      { err: error, attempt_id: attempt.id, correlation_id: attempt.correlationId },
-      'Failed to revalidate issue eligibility before dispatch'
+    const terminal =
+      error instanceof GitHubApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 429;
+    if (terminal) {
+      const message = error instanceof Error ? error.message : String(error);
+      opts.logger.error(
+        { err: error, attempt_id: attempt.id, correlation_id: attempt.correlationId },
+        'Failed to revalidate issue eligibility before dispatch'
+      );
+      completeAttempt(attempt.id, 'failed', { reason: `eligibility_check_failed: ${message}` }, db);
+      return 'failed_eligibility_check';
+    }
+    releaseDispatchClaim(attempt.id, db);
+    opts.logger.warn(
+      {
+        err: error,
+        attempt_id: attempt.id,
+        correlation_id: attempt.correlationId,
+        reason: 'eligibility_check_deferred',
+      },
+      'Released dispatch claim; eligibility check failed transiently and will be retried on the next poll'
     );
-    completeAttempt(attempt.id, 'failed', { reason: `eligibility_check_failed: ${message}` }, db);
-    return 'failed_eligibility_check';
+    return 'eligibility_check_deferred';
   }
 
   if (!isEligibleIssue(issue, opts.label)) {
@@ -146,6 +168,7 @@ export async function runDispatchOnce(opts: DevinDispatcherOptions): Promise<Dis
     dispatched: 0,
     claimLost: 0,
     cancelled: 0,
+    deferred: 0,
     failed: 0,
   };
 
@@ -164,6 +187,7 @@ export async function runDispatchOnce(opts: DevinDispatcherOptions): Promise<Dis
     if (decision === 'dispatched') result.dispatched += 1;
     else if (decision === 'claim_lost') result.claimLost += 1;
     else if (decision === 'cancelled_ineligible') result.cancelled += 1;
+    else if (decision === 'eligibility_check_deferred') result.deferred += 1;
     else result.failed += 1;
   }
 
@@ -173,6 +197,7 @@ export async function runDispatchOnce(opts: DevinDispatcherOptions): Promise<Dis
       dispatched: result.dispatched,
       claimLost: result.claimLost,
       cancelled: result.cancelled,
+      deferred: result.deferred,
       failed: result.failed,
     },
     'Devin dispatch completed'

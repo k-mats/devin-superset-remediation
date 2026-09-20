@@ -39,7 +39,7 @@ function identityWhere(input: TaskIdentityInput) {
 
 export const ALLOWED_TRANSITIONS: Record<AttemptState, readonly AttemptState[]> = {
   pending: ['dispatching', 'completed'],
-  dispatching: ['session_created', 'completed'],
+  dispatching: ['pending', 'session_created', 'completed'],
   session_created: ['running', 'completed'],
   running: ['completed'],
   completed: [],
@@ -167,6 +167,27 @@ export function claimAttemptForDispatch(
     .update(attempts)
     .set({ state: 'dispatching', dispatchedAt: timestamp, updatedAt: timestamp })
     .where(and(eq(attempts.id, attemptId), eq(attempts.state, 'pending')))
+    .run();
+  if (result.changes !== 1) {
+    return undefined;
+  }
+  return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
+}
+
+export function releaseDispatchClaim(
+  attemptId: number,
+  db: DbExecutor = getDb()
+): Attempt | undefined {
+  const result = db
+    .update(attempts)
+    .set({ state: 'pending', dispatchedAt: null, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        eq(attempts.state, 'dispatching'),
+        isNull(attempts.devinSessionId)
+      )
+    )
     .run();
   if (result.changes !== 1) {
     return undefined;
