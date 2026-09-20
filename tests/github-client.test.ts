@@ -110,9 +110,9 @@ describe('GitHubClient', () => {
 
   it.each<[number, Record<string, string>, boolean]>([
     [403, { 'x-ratelimit-remaining': '0' }, true],
-    [429, { 'retry-after': '30' }, true],
+    [403, { 'retry-after': '30' }, true],
+    [429, {}, true],
     [403, {}, false],
-    [429, {}, false],
     [500, { 'x-ratelimit-remaining': '0' }, false],
   ])('flags %i with headers %j as rateLimited=%s', async (status, headers, expectedRateLimited) => {
     const fetchFn = vi.fn<typeof fetch>(() =>

@@ -42,8 +42,8 @@ export interface DevinDispatcherOptions {
 
 const MAX_TITLE_LENGTH = 120;
 
-// GitHub 4xx are terminal unless GitHub signals a primary/secondary rate
-// limit via X-RateLimit-Remaining: 0 or Retry-After.
+// GitHub 4xx are terminal except 429 and 403 rate limits (signalled via
+// X-RateLimit-Remaining: 0 or Retry-After).
 function isTerminalEligibilityError(error: unknown): boolean {
   return (
     error instanceof GitHubApiError &&

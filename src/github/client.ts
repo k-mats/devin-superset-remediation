@@ -73,9 +73,10 @@ export class GitHubClient {
       const text = (await response.text()).slice(0, MAX_ERROR_BODY_LENGTH);
       const body = text.replaceAll(this.token, '[REDACTED]');
       const rateLimited =
-        (response.status === 403 || response.status === 429) &&
-        (response.headers.get('x-ratelimit-remaining') === '0' ||
-          response.headers.has('retry-after'));
+        response.status === 429 ||
+        (response.status === 403 &&
+          (response.headers.get('x-ratelimit-remaining') === '0' ||
+            response.headers.has('retry-after')));
       throw new GitHubApiError(response.status, 'GET', path, body, rateLimited);
     }
 
