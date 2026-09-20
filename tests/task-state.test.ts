@@ -129,11 +129,10 @@ describe('task state repository', () => {
       repoOwner: 'owner',
       repoName: 'repo',
       issueNumber: 1,
-      title: 'new',
     });
 
     expect(second.id).toBe(first.id);
-    expect(second.title).toBe('new');
+    expect(second.title).toBe('old');
     expect(listAttempts(second.id)).toEqual([]);
   });
 

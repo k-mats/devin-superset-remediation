@@ -11,6 +11,19 @@ import {
 } from './schema.js';
 
 type Db = ReturnType<typeof getDb>;
+type TaskIdentityInput = {
+  repoOwner: string;
+  repoName: string;
+  issueNumber: number;
+};
+
+function identityWhere(input: TaskIdentityInput) {
+  return and(
+    eq(tasks.repoOwner, input.repoOwner),
+    eq(tasks.repoName, input.repoName),
+    eq(tasks.issueNumber, input.issueNumber)
+  );
+}
 
 export const ALLOWED_TRANSITIONS: Record<AttemptState, readonly AttemptState[]> = {
   pending: ['dispatching'],
@@ -53,16 +66,12 @@ function transitionAttempt(
   return requireAttempt(attemptId, db);
 }
 
-export function upsertTask(
-  input: {
-    repoOwner: string;
-    repoName: string;
-    issueNumber: number;
-    title?: string;
-  },
-  db: Db = getDb()
-): Task {
+export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db = getDb()): Task {
   const timestamp = Date.now();
+  const set: { updatedAt: number; title?: string | null } = { updatedAt: timestamp };
+  if (input.title !== undefined) {
+    set.title = input.title;
+  }
   db.insert(tasks)
     .values({
       repoOwner: input.repoOwner,
@@ -74,19 +83,11 @@ export function upsertTask(
     })
     .onConflictDoUpdate({
       target: [tasks.repoOwner, tasks.repoName, tasks.issueNumber],
-      set: { title: input.title ?? null, updatedAt: timestamp },
+      set,
     })
     .run();
 
-  const task = db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.issueNumber, input.issueNumber))
-    .all()
-    .find(
-      (candidate) =>
-        candidate.repoOwner === input.repoOwner && candidate.repoName === input.repoName
-    );
+  const task = db.select().from(tasks).where(identityWhere(input)).get();
   if (!task) {
     throw new Error('Task could not be persisted');
   }
@@ -166,20 +167,8 @@ export function completeAttempt(
   );
 }
 
-export function getTaskByIdentity(
-  input: {
-    repoOwner: string;
-    repoName: string;
-    issueNumber: number;
-  },
-  db: Db = getDb()
-): Task | undefined {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.issueNumber, input.issueNumber))
-    .all()
-    .find((task) => task.repoOwner === input.repoOwner && task.repoName === input.repoName);
+export function getTaskByIdentity(input: TaskIdentityInput, db: Db = getDb()): Task | undefined {
+  return db.select().from(tasks).where(identityWhere(input)).get();
 }
 
 export function getAttempt(attemptId: number, db: Db = getDb()): Attempt | undefined {
