@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, isNull, max } from 'drizzle-orm';
+import Database, { type RunResult } from 'better-sqlite3';
+import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
 import {
   attempts,
@@ -11,6 +13,7 @@ import {
 } from './schema.js';
 
 export type Db = ReturnType<typeof getDb>;
+export type DbExecutor = BaseSQLiteDatabase<'sync', RunResult, Record<string, unknown>>;
 type TaskIdentityInput = {
   repoOwner: string;
   repoName: string;
@@ -35,8 +38,8 @@ function identityWhere(input: TaskIdentityInput) {
 }
 
 export const ALLOWED_TRANSITIONS: Record<AttemptState, readonly AttemptState[]> = {
-  pending: ['dispatching'],
-  dispatching: ['session_created', 'completed'],
+  pending: ['dispatching', 'completed'],
+  dispatching: ['pending', 'session_created', 'completed'],
   session_created: ['running', 'completed'],
   running: ['completed'],
   completed: [],
@@ -49,7 +52,14 @@ export class InvalidTransitionError extends Error {
   }
 }
 
-function requireAttempt(attemptId: number, db: Db): Attempt {
+export class ActiveAttemptExistsError extends Error {
+  constructor(taskId: number) {
+    super(`Task ${String(taskId)} already has an active attempt`);
+    this.name = 'ActiveAttemptExistsError';
+  }
+}
+
+function requireAttempt(attemptId: number, db: DbExecutor): Attempt {
   const attempt = db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
   if (!attempt) {
     throw new Error(`Attempt ${String(attemptId)} not found`);
@@ -61,7 +71,7 @@ function transitionAttempt(
   attemptId: number,
   to: AttemptState,
   fields: Partial<typeof attempts.$inferInsert> = {},
-  db: Db
+  db: DbExecutor
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
   if (!ALLOWED_TRANSITIONS[attempt.state].includes(to)) {
@@ -79,7 +89,10 @@ function transitionAttempt(
   return requireAttempt(attemptId, db);
 }
 
-export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db = getDb()): Task {
+export function upsertTask(
+  input: TaskIdentityInput & { title?: string },
+  db: DbExecutor = getDb()
+): Task {
   if (!Number.isInteger(input.issueNumber) || input.issueNumber <= 0) {
     throw new Error('Issue number must be a positive integer');
   }
@@ -111,15 +124,15 @@ export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db
   return task;
 }
 
-export function createAttempt(taskId: number, db: Db = getDb()): Attempt {
-  return db.transaction((tx) => {
-    const current = tx
+export function createAttempt(taskId: number, db: DbExecutor = getDb()): Attempt {
+  try {
+    const current = db
       .select({ maxAttemptNumber: max(attempts.attemptNumber) })
       .from(attempts)
       .where(eq(attempts.taskId, taskId))
       .get();
     const timestamp = Date.now();
-    return tx
+    return db
       .insert(attempts)
       .values({
         taskId,
@@ -131,17 +144,70 @@ export function createAttempt(taskId: number, db: Db = getDb()): Attempt {
       })
       .returning()
       .get();
-  });
+  } catch (error: unknown) {
+    if (
+      error instanceof Database.SqliteError &&
+      error.code === 'SQLITE_CONSTRAINT_UNIQUE' &&
+      // The partial index reports only its single indexed column;
+      // attempts_task_attempt_unique would also list attempt_number.
+      error.message === 'UNIQUE constraint failed: attempts.task_id'
+    ) {
+      throw new ActiveAttemptExistsError(taskId);
+    }
+    throw error;
+  }
 }
 
-export function markDispatching(attemptId: number, db: Db = getDb()): Attempt {
-  return transitionAttempt(attemptId, 'dispatching', { dispatchedAt: Date.now() }, db);
+export function claimAttemptForDispatch(
+  attemptId: number,
+  db: DbExecutor = getDb()
+): Attempt | undefined {
+  const timestamp = Date.now();
+  const result = db
+    .update(attempts)
+    .set({ state: 'dispatching', dispatchedAt: timestamp, updatedAt: timestamp })
+    .where(and(eq(attempts.id, attemptId), eq(attempts.state, 'pending')))
+    .run();
+  if (result.changes !== 1) {
+    return undefined;
+  }
+  return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
+}
+
+export function releaseDispatchClaim(
+  attemptId: number,
+  db: DbExecutor = getDb()
+): Attempt | undefined {
+  const result = db
+    .update(attempts)
+    .set({ state: 'pending', dispatchedAt: null, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        eq(attempts.state, 'dispatching'),
+        isNull(attempts.devinSessionId)
+      )
+    )
+    .run();
+  if (result.changes !== 1) {
+    return undefined;
+  }
+  return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
+}
+
+export function markDispatching(attemptId: number, db: DbExecutor = getDb()): Attempt {
+  const claimed = claimAttemptForDispatch(attemptId, db);
+  if (!claimed) {
+    const attempt = requireAttempt(attemptId, db);
+    throw new InvalidTransitionError(attemptId, attempt.state, 'dispatching');
+  }
+  return claimed;
 }
 
 export function markSessionCreated(
   attemptId: number,
   input: { devinSessionId: string; devinSessionUrl?: string },
-  db: Db = getDb()
+  db: DbExecutor = getDb()
 ): Attempt {
   return transitionAttempt(
     attemptId,
@@ -155,11 +221,11 @@ export function markSessionCreated(
   );
 }
 
-export function markRunning(attemptId: number, db: Db = getDb()): Attempt {
+export function markRunning(attemptId: number, db: DbExecutor = getDb()): Attempt {
   return transitionAttempt(attemptId, 'running', {}, db);
 }
 
-export function setPrUrl(attemptId: number, prUrl: string, db: Db = getDb()): Attempt {
+export function setPrUrl(attemptId: number, prUrl: string, db: DbExecutor = getDb()): Attempt {
   const attempt = requireAttempt(attemptId, db);
   if (attempt.state === 'completed') {
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
@@ -178,7 +244,8 @@ export function setPrUrl(attemptId: number, prUrl: string, db: Db = getDb()): At
 export function completeAttempt(
   attemptId: number,
   outcome: AttemptOutcome,
-  db: Db = getDb()
+  opts: { reason?: string } = {},
+  db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
   if (outcome === 'succeeded' && attempt.devinSessionId === null) {
@@ -189,28 +256,32 @@ export function completeAttempt(
     'completed',
     {
       outcome,
+      outcomeReason: opts.reason,
       completedAt: Date.now(),
     },
     db
   );
 }
 
-export function getTaskByIdentity(input: TaskIdentityInput, db: Db = getDb()): Task | undefined {
+export function getTaskByIdentity(
+  input: TaskIdentityInput,
+  db: DbExecutor = getDb()
+): Task | undefined {
   return db.select().from(tasks).where(identityWhere(input)).get();
 }
 
-export function getAttempt(attemptId: number, db: Db = getDb()): Attempt | undefined {
+export function getAttempt(attemptId: number, db: DbExecutor = getDb()): Attempt | undefined {
   return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
 }
 
 export function getAttemptByCorrelationId(
   correlationId: string,
-  db: Db = getDb()
+  db: DbExecutor = getDb()
 ): Attempt | undefined {
   return db.select().from(attempts).where(eq(attempts.correlationId, correlationId)).get();
 }
 
-export function listAttempts(taskId: number, db: Db = getDb()): Attempt[] {
+export function listAttempts(taskId: number, db: DbExecutor = getDb()): Attempt[] {
   return db
     .select()
     .from(attempts)
@@ -219,7 +290,19 @@ export function listAttempts(taskId: number, db: Db = getDb()): Attempt[] {
     .all();
 }
 
-export function findStaleDispatchingAttempts(db: Db = getDb()): Attempt[] {
+export function findPendingAttempts(
+  db: DbExecutor = getDb()
+): Array<{ attempt: Attempt; task: Task }> {
+  return db
+    .select({ attempt: attempts, task: tasks })
+    .from(attempts)
+    .innerJoin(tasks, eq(attempts.taskId, tasks.id))
+    .where(eq(attempts.state, 'pending'))
+    .orderBy(asc(attempts.createdAt), asc(attempts.id))
+    .all();
+}
+
+export function findStaleDispatchingAttempts(db: DbExecutor = getDb()): Attempt[] {
   return db
     .select()
     .from(attempts)

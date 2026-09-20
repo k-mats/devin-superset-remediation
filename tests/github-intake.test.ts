@@ -4,12 +4,14 @@ import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
 import type { GitHubIssue } from '../src/github/client.js';
 import {
+  intakeIssue,
   isEligibleIssue,
   runIntakeOnce,
   startIntakePoller,
   type GitHubIntakeOptions,
 } from '../src/intake/github-intake.js';
 import type { Db } from '../src/db/task-state.js';
+import { ActiveAttemptExistsError } from '../src/db/task-state.js';
 import {
   completeAttempt,
   createAttempt,
@@ -118,8 +120,6 @@ describe('GitHub intake', () => {
 
   it('does not create an attempt for an active attempt', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
-    const dispatching = createAttempt(task.id);
-    markDispatching(dispatching.id);
     const running = createAttempt(task.id);
     markDispatching(running.id);
     markSessionCreated(running.id, { devinSessionId: 'running-session' });
@@ -130,7 +130,35 @@ describe('GitHub intake', () => {
     );
 
     expect(result.skipped).toBe(1);
-    expect(listAttempts(task.id)).toHaveLength(2);
+    expect(listAttempts(task.id)).toHaveLength(1);
+  });
+
+  it('reports a concurrent active-attempt conflict as a skip, not an error', async () => {
+    const task = upsertTask({ ...identity, issueNumber: 7 });
+    const conflictingDb = {
+      transaction: () => {
+        throw new ActiveAttemptExistsError(task.id);
+      },
+    } as unknown as Db;
+
+    const decision = intakeIssue(issue(), identity, conflictingDb);
+    expect(decision).toBe('skipped_active_attempt_conflict');
+    expect(listAttempts(task.id)).toHaveLength(0);
+
+    const intakeLogger = logger();
+    const result = await runIntakeOnce(
+      options(
+        { listOpenIssuesByLabel: vi.fn().mockResolvedValue([issue()]) },
+        { db: conflictingDb, logger: intakeLogger }
+      )
+    );
+
+    expect(result).toMatchObject({ fetched: 1, created: 0, skipped: 1, ineligible: 0 });
+    expect(intakeLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ issue_number: 7, reason: 'active_attempt_conflict' }),
+      'Skipped GitHub issue with existing attempt history'
+    );
+    expect(intakeLogger.error).not.toHaveBeenCalled();
   });
 
   it('creates the first attempt for an existing task with no history', async () => {
@@ -190,9 +218,8 @@ describe('GitHub intake', () => {
     const sqlite = getDb();
     expect(() => {
       sqlite.transaction((tx) => {
-        const transactionDb = tx as unknown as Db;
-        const task = upsertTask({ ...identity, issueNumber: 7, title: 'Atomic' }, transactionDb);
-        createAttempt(task.id, transactionDb);
+        const task = upsertTask({ ...identity, issueNumber: 7, title: 'Atomic' }, tx);
+        createAttempt(task.id, tx);
         tx.insert(attempts)
           .values({
             taskId: task.id,

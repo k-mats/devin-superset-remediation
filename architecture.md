@@ -53,12 +53,16 @@ verification/reporting
 The orchestrator stores each GitHub issue as a `tasks` row and each Devin
 execution as an `attempts` row. Attempt state moves from `pending` to
 `dispatching` to `session_created` to `running` to `completed`, with outcomes
-of `succeeded`, `failed`, `cancelled`, or `escalated`. The orchestrator commits
+of `succeeded`, `failed`, `cancelled`, or `escalated`; `pending` may also move
+directly to `completed` (cancelled before dispatch). The orchestrator commits
 `dispatching` before calling the Devin session API, then saves
 `devin_session_id` and `session_created` after success. A `dispatching` attempt
 with a NULL session ID is the reconciliation signal after a crash.
 `correlation_id` is the stable identifier reserved for a future Devin session
-tag.
+tag. A partial unique index on `attempts.task_id` restricts each task to at
+most one active (`pending`, `dispatching`, `session_created`, or `running`)
+attempt, and `outcome_reason` records why a `cancelled` or `failed` attempt
+was completed.
 
 ## Architectural Constraints
 
@@ -89,6 +93,22 @@ pending attempt. Existing attempt history, including active and completed
 attempts, is never treated as an implicit retry. A GitHub or response parsing
 failure is logged and returned to the caller without changing task state; the
 next scheduled poll can retry the fetch.
+
+### Dispatch
+
+The dispatch poller claims each `pending` attempt with a single conditional
+`UPDATE ... WHERE state = 'pending'`; only the winning claimer proceeds, so
+`DevinClient.createSession()` runs at most once per task. After claiming, the
+issue is refetched and revalidated against the intake eligibility rules;
+newly ineligible issues are `cancelled` with a recorded `outcome_reason`
+(`is_pull_request`, `issue_closed`, or `label_missing`). A terminal
+eligibility-check failure (a GitHub 4xx other than 429 or a 403 rate limit
+signalled via `X-RateLimit-Remaining: 0` or `Retry-After`) completes the attempt as
+`failed`, while a transient failure (5xx, 429, 403 rate limits, network/timeout, parse
+errors) releases the claim back to `pending` for the next poll — retry caps
+are Issue #21. A `createSession` failure leaves
+the attempt in `dispatching` for the reconciliation pass, since the session
+may have been created server-side.
 
 ### TBD (Still to be determined)
 

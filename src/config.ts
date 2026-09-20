@@ -15,6 +15,8 @@ const configSchema = z.object({
   devinApiKey: z.string().optional(),
   devinOrgId: z.string().optional(),
   devinApiUrl: z.url().default('https://api.devin.ai/v3'),
+  devinDispatchIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
+  devinMaxAcuPerSession: z.coerce.number().positive().default(5),
 });
 
 // Treat blank env vars (e.g. `DEVIN_API_URL=` in .env) as unset so defaults apply.
@@ -41,6 +43,8 @@ export function loadConfig(): Config {
     devinApiKey: envValue('DEVIN_API_KEY'),
     devinOrgId: envValue('DEVIN_ORG_ID'),
     devinApiUrl: envValue('DEVIN_API_URL'),
+    devinDispatchIntervalMs: envValue('DEVIN_DISPATCH_INTERVAL_MS'),
+    devinMaxAcuPerSession: envValue('DEVIN_MAX_ACU_PER_SESSION'),
   });
 }
 

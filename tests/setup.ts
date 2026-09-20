@@ -4,3 +4,4 @@ process.env['PORT'] = '3001';
 process.env['DATABASE_PATH'] = './test-database.db';
 process.env['LOG_LEVEL'] = 'error';
 process.env['GITHUB_POLL_INTERVAL_MS'] = '0';
+process.env['DEVIN_DISPATCH_INTERVAL_MS'] = '0';
