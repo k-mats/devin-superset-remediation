@@ -136,6 +136,23 @@ describe('task state repository', () => {
     expect(listAttempts(second.id)).toEqual([]);
   });
 
+  it('rejects invalid issue numbers', () => {
+    expect(() =>
+      upsertTask({
+        repoOwner: 'owner',
+        repoName: 'repo',
+        issueNumber: 0,
+      })
+    ).toThrow(new Error('Issue number must be a positive integer'));
+    expect(() =>
+      upsertTask({
+        repoOwner: 'owner',
+        repoName: 'repo',
+        issueNumber: 1.5,
+      })
+    ).toThrow(new Error('Issue number must be a positive integer'));
+  });
+
   it('normalizes repository identity', () => {
     const first = upsertTask({
       repoOwner: 'Acme',
@@ -212,6 +229,13 @@ describe('task state repository', () => {
         )
         .run('owner', 'repo', 1, timestamp, timestamp)
     ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          'INSERT INTO tasks (repo_owner, repo_name, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run('owner', 'zero-issue', 0, timestamp, timestamp)
+    ).toThrow();
 
     const existingAttempt = createAttempt(task.id);
     const insertAttempt = sqlite.prepare(
@@ -281,6 +305,9 @@ describe('task state repository', () => {
     ).toThrow();
     expect(() =>
       insertAttempt.run(task.id, 9, randomUUID(), 'running', null, null, timestamp, timestamp)
+    ).toThrow();
+    expect(() =>
+      insertAttempt.run(task.id, 0, randomUUID(), 'pending', null, null, timestamp, timestamp)
     ).toThrow();
     expect(() =>
       insertAttempt.run(

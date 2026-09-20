@@ -1,6 +1,9 @@
+import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeDb, runMigrations } from '../src/db/client.js';
+import { config } from '../src/config.js';
 import {
   completeAttempt,
   createAttempt,
@@ -41,6 +44,7 @@ function write() {
     JSON.stringify(
       {
         pid: process.pid,
+        database: resolve(config.databasePath),
         task,
         attempts: listAttempts(task.id),
       },
@@ -63,7 +67,13 @@ function read() {
   }
   const attempts = listAttempts(task.id);
   const stale = findStaleDispatchingAttempts();
-  console.log(JSON.stringify({ pid: process.pid, task, attempts, stale }, null, 2));
+  console.log(
+    JSON.stringify(
+      { pid: process.pid, database: resolve(config.databasePath), task, attempts, stale },
+      null,
+      2
+    )
+  );
   if (
     attempts[0]?.state !== 'completed' ||
     attempts[0].outcome !== 'succeeded' ||

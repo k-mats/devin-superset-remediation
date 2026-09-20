@@ -68,7 +68,7 @@ pnpm install
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
-- `DATABASE_PATH=./data/demo.db pnpm demo:restart` - Demonstrate persistent state across process restart
+- `DATABASE_PATH=./data/demo.db pnpm demo:restart` - Demonstrate persistent state across process restart; `DATABASE_PATH` is optional and sets the SQLite file path (default `./data/orchestrator.db`), so any path works and `./data/demo.db` keeps demo data separate from the real database
 
 ### Environment Variables
 

@@ -31,6 +31,7 @@ export const tasks = sqliteTable(
   },
   (table) => [
     uniqueIndex('tasks_identity_unique').on(table.repoOwner, table.repoName, table.issueNumber),
+    check('tasks_issue_number_check', sql`${table.issueNumber} > 0`),
   ]
 );
 
@@ -56,6 +57,7 @@ export const attempts = sqliteTable(
   },
   (table) => [
     uniqueIndex('attempts_task_attempt_unique').on(table.taskId, table.attemptNumber),
+    check('attempts_attempt_number_check', sql`${table.attemptNumber} > 0`),
     check(
       'attempts_state_check',
       sql`${table.state} IN ('pending', 'dispatching', 'session_created', 'running', 'completed')`

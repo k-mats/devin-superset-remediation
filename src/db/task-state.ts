@@ -80,6 +80,9 @@ function transitionAttempt(
 }
 
 export function upsertTask(input: TaskIdentityInput & { title?: string }, db: Db = getDb()): Task {
+  if (!Number.isInteger(input.issueNumber) || input.issueNumber <= 0) {
+    throw new Error('Issue number must be a positive integer');
+  }
   const timestamp = Date.now();
   const identity = normalizeIdentity(input);
   const set: { updatedAt: number; title?: string | null } = { updatedAt: timestamp };

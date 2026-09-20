@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8850f1e1-fd89-4f7f-962f-ae97649cfa38",
+  "id": "c7530707-ffdd-4aca-8f1b-2eef8be141d3",
   "prevId": "d48bcee4-c8d9-4bbe-8d37-89af321290c5",
   "tables": {
     "attempts": {
@@ -149,6 +149,10 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "attempts_attempt_number_check": {
+          "name": "attempts_attempt_number_check",
+          "value": "\"attempts\".\"attempt_number\" > 0"
+        },
         "attempts_state_check": {
           "name": "attempts_state_check",
           "value": "\"attempts\".\"state\" IN ('pending', 'dispatching', 'session_created', 'running', 'completed')"
@@ -238,7 +242,12 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "tasks_issue_number_check": {
+          "name": "tasks_issue_number_check",
+          "value": "\"tasks\".\"issue_number\" > 0"
+        }
+      }
     }
   },
   "views": {},
