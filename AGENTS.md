@@ -9,19 +9,22 @@ devin-superset-remediation/
 │   ├── config.ts             # Configuration (zod schemas)
 │   ├── db/                   # Database
 │   │   ├── schema.ts         # Drizzle schema definitions
-│   │   └── client.ts         # Database client singleton
+│   │   ├── client.ts         # Database client singleton
+│   │   └── task-state.ts     # Persistent task and attempt state
 │   ├── devin/                # Devin API
 │   │   └── client.ts         # Devin v3 Organization API client
 │   └── routes/               # Fastify routes
 │       └── health.ts         # Health check endpoint
 ├── scripts/
-│   └── devin-smoke.ts        # Devin API smoke test (Issue #5)
+│   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
+│   └── state-restart-demo.ts # Persistent state restart demo (Issue #6)
 ├── docs/
 │   └── evidence/             # Verification evidence artifacts
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
-│   └── database.test.ts      # Database integration test
+│   ├── database.test.ts      # Database integration test
+│   └── task-state.test.ts    # Persistent task state tests
 ├── drizzle/                  # Drizzle migrations
 ├── package.json              # pnpm configuration
 ├── tsconfig.json             # TypeScript configuration
@@ -76,6 +79,7 @@ devin-superset-remediation/
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
+- `pnpm demo:restart` - Demonstrate state recovery across process restart
 
 ## Safety Rules
 

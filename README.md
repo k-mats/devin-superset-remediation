@@ -68,6 +68,7 @@ pnpm install
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
+- `DATABASE_PATH=./data/demo.db pnpm demo:restart` - Demonstrate persistent state across process restart
 
 ### Environment Variables
 
