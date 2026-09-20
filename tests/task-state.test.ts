@@ -13,6 +13,7 @@ import {
   claimAttemptForDispatch,
   completeAttempt,
   createAttempt,
+  findCompletedAttemptsWithTrackedPullRequests,
   findPendingAttempts,
   findStaleDispatchingAttempts,
   getAttemptByCorrelationId,
@@ -672,5 +673,22 @@ describe('task state repository', () => {
     completeAttempt(completed.id, 'failed');
 
     expect(findStaleDispatchingAttempts().map((attempt) => attempt.id)).toEqual([stale.id]);
+  });
+
+  it('tracks completed pull requests whose state is still unknown', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 4 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'legacy-session' });
+    completeAttempt(attempt.id, 'succeeded');
+    const rawDb = getRawDb();
+    if (!rawDb) throw new Error('Raw database was not initialized');
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ?, pr_state = NULL WHERE id = ?')
+      .run('https://github.com/owner/repo/pull/42', 42, attempt.id);
+
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).toEqual([attempt.id]);
   });
 });

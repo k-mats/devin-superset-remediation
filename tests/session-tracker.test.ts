@@ -12,7 +12,7 @@ import {
   recordPullRequest,
   upsertTask,
 } from '../src/db/task-state.js';
-import type { GitHubPullRequest } from '../src/github/client.js';
+import { GitHubApiError, type GitHubPullRequest } from '../src/github/client.js';
 import { runTrackingOnce, toEpochMs } from '../src/tracking/session-tracker.js';
 
 function logger() {
@@ -220,6 +220,46 @@ describe('session tracker', () => {
       state: 'verifying',
       prState: 'merged',
       prHeadSha: 'merged-sha',
+    });
+  });
+
+  it('escalates terminal PR lookup rejection but defers rate-limited lookup', async () => {
+    const first = activeAttempt(10);
+    const second = activeAttempt(11);
+    const output = (issueNumber: number) => ({
+      schema_version: 1 as const,
+      outcome: 'remediated' as const,
+      pr_url: `https://github.com/owner/repo/pull/${String(issueNumber)}`,
+      diagnosis: 'Fixed',
+      tests_run: [],
+      risks: [],
+      needs_human_reason: null,
+    });
+    const getSession = vi
+      .fn()
+      .mockResolvedValueOnce(session({ structured_output: output(10) }))
+      .mockResolvedValueOnce(session({ structured_output: output(11) }));
+    const getPullRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new GitHubApiError(403, 'GET', '/pulls/10', 'forbidden'))
+      .mockRejectedValueOnce(new GitHubApiError(403, 'GET', '/pulls/11', 'rate limited', true));
+
+    await runTrackingOnce({
+      devin: { getSession },
+      github: { getPullRequest },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(getAttempt(first.attempt.id)).toMatchObject({
+      state: 'completed',
+      outcome: 'escalated',
+      outcomeReason: 'pr_lookup_rejected: https://github.com/owner/repo/pull/10',
+    });
+    expect(getAttempt(second.attempt.id)).toMatchObject({
+      state: 'session_created',
+      outcome: null,
+      agentOutcome: 'remediated',
     });
   });
 });

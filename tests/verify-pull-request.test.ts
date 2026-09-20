@@ -42,9 +42,15 @@ describe('verify pull request', () => {
   });
 
   it('requires an exact issue reference', () => {
-    expect(referencesIssue({ title: 'Fix #11', body: null }, 11)).toBe(true);
-    expect(referencesIssue({ title: 'Fix #110', body: null }, 11)).toBe(false);
-    expect(referencesIssue({ title: 'See /issues/11', body: null }, 11)).toBe(true);
+    expect(referencesIssue({ title: 'Fix #11', body: null }, task)).toBe(true);
+    expect(referencesIssue({ title: 'Fix #110', body: null }, task)).toBe(false);
+    expect(referencesIssue({ title: 'See owner/repo#11', body: null }, task)).toBe(true);
+    expect(
+      referencesIssue({ title: 'See https://github.com/OWNER/REPO/issues/11', body: null }, task)
+    ).toBe(true);
+    expect(
+      referencesIssue({ title: 'See https://github.com/other/repo/issues/11', body: null }, task)
+    ).toBe(false);
   });
 
   it.each([
@@ -69,6 +75,22 @@ describe('verify pull request', () => {
       getPullRequest: vi.fn().mockResolvedValue(pullRequest({ title: 'Other work' })),
     });
     expect(unrelated).toMatchObject({ ok: false, reason: 'issue_not_referenced' });
+  });
+
+  it('classifies terminal and transient lookup errors separately', async () => {
+    const rejected = await verifyAgentPullRequest(task, 'https://github.com/owner/repo/pull/12', {
+      getPullRequest: vi
+        .fn()
+        .mockRejectedValue(new GitHubApiError(403, 'GET', '/pulls/12', 'forbidden')),
+    });
+    expect(rejected).toMatchObject({ ok: false, reason: 'lookup_rejected' });
+
+    const deferred = await verifyAgentPullRequest(task, 'https://github.com/owner/repo/pull/12', {
+      getPullRequest: vi
+        .fn()
+        .mockRejectedValue(new GitHubApiError(403, 'GET', '/pulls/12', 'rate limited', true)),
+    });
+    expect(deferred).toMatchObject({ ok: false, reason: 'lookup_failed' });
   });
 
   it('accepts a case-insensitive repository match and returns verified fields', async () => {

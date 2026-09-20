@@ -19,11 +19,20 @@ export function parsePullRequestUrl(
 
 export function referencesIssue(
   pr: Pick<GitHubPullRequest, 'title' | 'body'>,
-  issueNumber: number
+  task: Pick<Task, 'repoOwner' | 'repoName' | 'issueNumber'>
 ) {
-  const number = String(issueNumber);
-  const pattern = new RegExp(`(^|[^\\w/])#${number}\\b|/issues/${number}\\b`);
+  const number = String(task.issueNumber);
+  const owner = escapeRegex(task.repoOwner);
+  const repo = escapeRegex(task.repoName);
+  const pattern = new RegExp(
+    `(^|[^\\w/])#${number}\\b|(?:^|[^\\w/])${owner}\\/${repo}#${number}\\b|https:\\/\\/github\\.com\\/${owner}\\/${repo}\\/issues\\/${number}\\b`,
+    'i'
+  );
   return pattern.test(pr.title) || pattern.test(pr.body ?? '');
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 type VerifiedPullRequest = {
@@ -42,6 +51,7 @@ export type VerifyPullRequestResult =
         | 'repo_mismatch'
         | 'not_found'
         | 'issue_not_referenced'
+        | 'lookup_rejected'
         | 'lookup_failed';
       message?: string;
     };
@@ -67,6 +77,14 @@ export async function verifyAgentPullRequest(
     if (error instanceof GitHubApiError && error.status === 404) {
       return { ok: false, reason: 'not_found', message: error.message };
     }
+    if (
+      error instanceof GitHubApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      !error.rateLimited
+    ) {
+      return { ok: false, reason: 'lookup_rejected', message: error.message };
+    }
     return {
       ok: false,
       reason: 'lookup_failed',
@@ -76,7 +94,7 @@ export async function verifyAgentPullRequest(
   if (pr.base.repo.full_name.toLowerCase() !== `${task.repoOwner}/${task.repoName}`.toLowerCase()) {
     return { ok: false, reason: 'repo_mismatch' };
   }
-  if (!referencesIssue(pr, task.issueNumber)) {
+  if (!referencesIssue(pr, task)) {
     return { ok: false, reason: 'issue_not_referenced' };
   }
   return {
