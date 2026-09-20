@@ -22,6 +22,7 @@ import {
   upsertTask,
   type Db,
 } from '../src/db/task-state.js';
+import { structuredOutputJsonSchema } from '../src/devin/structured-output.js';
 import { runIntakeOnce } from '../src/intake/github-intake.js';
 import {
   buildSessionPrompt,
@@ -382,6 +383,9 @@ describe('Devin dispatcher', () => {
       'issue:owner/repo#7',
     ]);
     expect(request?.max_acu_limit).toBe(7);
+    expect(request?.structured_output_required).toBe(true);
+    expect(request?.structured_output_schema).toEqual(structuredOutputJsonSchema);
+    expect(request?.prompt).toContain('schema_version');
   });
 
   it('truncates the session title to 120 characters', async () => {
@@ -568,6 +572,14 @@ describe('prompt and tag builders', () => {
       dispatchedAt: null,
       sessionCreatedAt: null,
       completedAt: null,
+      structuredOutputRaw: null,
+      agentOutcome: null,
+      agentPrUrl: null,
+      agentDiagnosis: null,
+      agentTestsRun: null,
+      agentRisks: null,
+      needsHumanReason: null,
+      structuredOutputAcceptedAt: null,
     } satisfies Attempt;
 
     const prompt = buildSessionPrompt(task, issue({ body: null }), attempt);

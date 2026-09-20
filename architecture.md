@@ -64,6 +64,35 @@ most one active (`pending`, `dispatching`, `session_created`, or `running`)
 attempt, and `outcome_reason` records why a `cancelled` or `failed` attempt
 was completed.
 
+Each dispatched session is created with `structured_output_required` and a
+JSON Schema (version 1, defined in `src/devin/structured-output.ts`)
+describing the agent's machine-readable result: `outcome` (`remediated`,
+`needs_human`, or `no_action`), `pr_url`, `diagnosis`, `tests_run`, `risks`,
+and `needs_human_reason`. The same contract is enforced locally by a zod
+schema with equivalent invariants (e.g. `remediated` requires a `pr_url`).
+
+`collectStructuredOutput` first classifies the fetched session into a phase
+(`classifySessionPhase`):
+
+| Phase              | Derived from                                  | Collection behavior                                                                 |
+| ------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `in_progress`      | any other status/detail                       | `session_not_finished`, nothing persisted                                           |
+| `waiting_for_user` | `status_detail = waiting_for_user`            | without output: `awaiting_user_without_output`; with output: treated as collectable |
+| `suspended`        | `status = suspended`                          | without output: `session_suspended_without_output`; with output: collectable        |
+| `finished`         | `status = exit` or `status_detail = finished` | parse output: `recorded` / `escalated_missing` / `escalated_invalid`                |
+| `error`            | `status = error`                              | `escalated_session_error` (`session_error: <detail>`)                               |
+
+A valid output is stored in `structured_output_raw` plus the `agent_*` /
+`needs_human_reason` columns — kept separate from the orchestrator's own
+`outcome`/`pr_url`, which it does not change — and stamps
+`structured_output_accepted_at`, which makes acceptance idempotent: a second
+collection returns `already_recorded` (and a second write raises
+`StructuredOutputAlreadyAcceptedError`). Missing or invalid output on a
+finished session completes the attempt as `escalated` with a reason prefixed
+`structured_output_missing`/`structured_output_invalid`; a session in `error`
+escalates with `session_error: <status_detail>`. Evidence-only writes (the raw
+payload without a validated value) do not set `structured_output_accepted_at`.
+
 ## Architectural Constraints
 
 - Must be idempotent - duplicate events should not create duplicate Devin sessions

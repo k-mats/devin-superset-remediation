@@ -18,11 +18,13 @@ import {
   getAttemptByCorrelationId,
   getTaskByIdentity,
   InvalidTransitionError,
+  StructuredOutputAlreadyAcceptedError,
   listAttempts,
   markDispatching,
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
+  recordStructuredOutput,
   setPrUrl,
   upsertTask,
 } from '../src/db/task-state.js';
@@ -202,6 +204,68 @@ describe('task state repository', () => {
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
     expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
+    expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
+      InvalidTransitionError
+    );
+  });
+
+  it('accepts a structured output only once', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'sess' });
+    const parsed = {
+      schema_version: 1 as const,
+      outcome: 'no_action' as const,
+      pr_url: null,
+      diagnosis: 'd',
+      tests_run: [],
+      risks: [],
+      needs_human_reason: null,
+    };
+
+    const recorded = recordStructuredOutput(attempt.id, { raw: parsed, parsed });
+    expect(recorded.agentOutcome).toBe('no_action');
+    expect(recorded.structuredOutputAcceptedAt).toEqual(expect.any(Number));
+
+    const second = {
+      ...parsed,
+      outcome: 'needs_human' as const,
+      needs_human_reason: 'needs a call',
+    };
+    expect(() => recordStructuredOutput(attempt.id, { raw: second, parsed: second })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+
+    const stored = listAttempts(task.id)[0];
+    expect(stored?.agentOutcome).toBe('no_action');
+    expect(stored?.structuredOutputAcceptedAt).toBe(recorded.structuredOutputAcceptedAt);
+
+    // Evidence-only writes after acceptance are also rejected, so a stale
+    // reader cannot wipe the accepted agent fields.
+    expect(() =>
+      recordStructuredOutput(attempt.id, { raw: { partial: true }, parsed: undefined })
+    ).toThrow(StructuredOutputAlreadyAcceptedError);
+    const after = listAttempts(task.id)[0];
+    expect(after?.agentOutcome).toBe('no_action');
+    expect(after?.structuredOutputRaw).toBe(recorded.structuredOutputRaw);
+    expect(after?.state).toBe('session_created');
+
+    // Once the attempt is completed, acceptance still wins over the
+    // completed-state guard so concurrent collectors see AlreadyAccepted.
+    completeAttempt(attempt.id, 'escalated', { reason: 'done' });
+    expect(() => recordStructuredOutput(attempt.id, { raw: parsed, parsed })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+    expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+
+    const plain = createAttempt(task.id);
+    completeAttempt(plain.id, 'cancelled');
+    expect(() => recordStructuredOutput(plain.id, { raw: null, parsed: undefined })).toThrow(
+      InvalidTransitionError
+    );
   });
 
   it('rejects stale completion and preserves the newer outcome', () => {

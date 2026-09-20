@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
+import type { StructuredOutput } from '../devin/structured-output.js';
 import {
   attempts,
   type Attempt,
@@ -49,6 +50,13 @@ export class InvalidTransitionError extends Error {
   constructor(attemptId: number, from: AttemptState, to: AttemptState) {
     super(`Invalid transition for attempt ${String(attemptId)}: ${from} -> ${to}`);
     this.name = 'InvalidTransitionError';
+  }
+}
+
+export class StructuredOutputAlreadyAcceptedError extends Error {
+  constructor(attemptId: number) {
+    super(`Attempt ${String(attemptId)} already has an accepted structured output`);
+    this.name = 'StructuredOutputAlreadyAcceptedError';
   }
 }
 
@@ -236,6 +244,54 @@ export function setPrUrl(attemptId: number, prUrl: string, db: DbExecutor = getD
     .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
     .run();
   if (result.changes !== 1) {
+    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function recordStructuredOutput(
+  attemptId: number,
+  input: { raw: unknown; parsed: StructuredOutput | undefined },
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (attempt.structuredOutputAcceptedAt !== null) {
+    throw new StructuredOutputAlreadyAcceptedError(attemptId);
+  }
+  if (attempt.state === 'completed') {
+    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  }
+  const parsed = input.parsed;
+  const set: Partial<typeof attempts.$inferInsert> = {
+    structuredOutputRaw:
+      input.raw === undefined || input.raw === null ? null : JSON.stringify(input.raw),
+    agentOutcome: parsed?.outcome ?? null,
+    agentPrUrl: parsed?.pr_url ?? null,
+    agentDiagnosis: parsed?.diagnosis ?? null,
+    agentTestsRun: parsed?.tests_run ?? null,
+    agentRisks: parsed?.risks ?? null,
+    needsHumanReason: parsed?.needs_human_reason ?? null,
+    updatedAt: Date.now(),
+  };
+  if (parsed !== undefined) {
+    set.structuredOutputAcceptedAt = Date.now();
+  }
+  const result = db
+    .update(attempts)
+    .set(set)
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        eq(attempts.state, attempt.state),
+        isNull(attempts.structuredOutputAcceptedAt)
+      )
+    )
+    .run();
+  if (result.changes !== 1) {
+    const current = db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
+    if (current !== undefined && current.structuredOutputAcceptedAt !== null) {
+      throw new StructuredOutputAlreadyAcceptedError(attemptId);
+    }
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
   return requireAttempt(attemptId, db);

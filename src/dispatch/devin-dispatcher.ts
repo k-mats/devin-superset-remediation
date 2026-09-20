@@ -13,6 +13,7 @@ import {
   type Db,
 } from '../db/task-state.js';
 import { isEligibleIssue } from '../intake/github-intake.js';
+import { structuredOutputJsonSchema } from '../devin/structured-output.js';
 
 export type DispatchDecision =
   | 'dispatched'
@@ -75,7 +76,9 @@ ${issue.body || '(no description)'}
 
 Objective: diagnose the root cause described in the issue and implement a minimal, well-tested fix in this fork. Follow the repository's contribution conventions, run the relevant tests, and open a pull request against the fork's default branch that references the issue (e.g. "Fixes #${String(task.issueNumber)}"). Do not merge the pull request. If the issue cannot or should not be fixed as described, do not make speculative changes; explain why and stop.
 
-Task correlation id: ${attempt.correlationId}`;
+Task correlation id: ${attempt.correlationId}
+
+Structured output: you MUST finish this session by providing structured output matching the provided schema (schema_version: 1). Use outcome "remediated" only when you opened a pull request (set pr_url to the PR URL); use outcome "needs_human" with a non-empty needs_human_reason when a human decision is required; use outcome "no_action" (pr_url null) when the issue should not be acted on. Set tests_run to only the tests you actually executed in this session (empty array if none), diagnosis to a root-cause summary, and risks to any known risks or follow-ups (empty array if none).`;
 }
 
 export async function dispatchAttempt(
@@ -141,6 +144,8 @@ export async function dispatchAttempt(
       title: title.slice(0, MAX_TITLE_LENGTH),
       tags: buildSessionTags(task, claimed),
       max_acu_limit: opts.maxAcuPerSession,
+      structured_output_schema: structuredOutputJsonSchema,
+      structured_output_required: true,
     });
   } catch (error: unknown) {
     // A session may have been created server-side; leave the attempt in

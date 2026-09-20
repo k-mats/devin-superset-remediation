@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { z } from 'zod';
+import type { AgentOutcome, StructuredOutput } from '../devin/structured-output.js';
 
 export const ATTEMPT_STATES = [
   'pending',
@@ -55,6 +56,14 @@ export const attempts = sqliteTable(
     dispatchedAt: integer('dispatched_at'),
     sessionCreatedAt: integer('session_created_at'),
     completedAt: integer('completed_at'),
+    structuredOutputRaw: text('structured_output_raw'),
+    agentOutcome: text('agent_outcome').$type<AgentOutcome>(),
+    agentPrUrl: text('agent_pr_url'),
+    agentDiagnosis: text('agent_diagnosis'),
+    agentTestsRun: text('agent_tests_run', { mode: 'json' }).$type<StructuredOutput['tests_run']>(),
+    agentRisks: text('agent_risks', { mode: 'json' }).$type<string[]>(),
+    needsHumanReason: text('needs_human_reason'),
+    structuredOutputAcceptedAt: integer('structured_output_accepted_at'),
   },
   (table) => [
     uniqueIndex('attempts_task_attempt_unique').on(table.taskId, table.attemptNumber),
@@ -77,6 +86,10 @@ export const attempts = sqliteTable(
     check(
       'attempts_session_id_check',
       sql`${table.state} NOT IN ('session_created', 'running') OR ${table.devinSessionId} IS NOT NULL`
+    ),
+    check(
+      'attempts_agent_outcome_check',
+      sql`${table.agentOutcome} IS NULL OR ${table.agentOutcome} IN ('remediated', 'needs_human', 'no_action')`
     ),
     check(
       'attempts_succeeded_session_check',

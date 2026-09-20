@@ -64,6 +64,7 @@ export const sessionResponseSchema = z
     updated_at: z.number(),
     acus_consumed: z.number().nullish(),
     is_archived: z.boolean().optional(),
+    structured_output: z.unknown().nullish(),
   })
   .loose();
 
@@ -75,6 +76,8 @@ export interface CreateSessionRequest {
   tags?: string[];
   max_acu_limit?: number;
   resumable?: boolean;
+  structured_output_schema?: Record<string, unknown>;
+  structured_output_required?: boolean;
 }
 
 export interface DevinClientOptions {
@@ -145,6 +148,16 @@ export class DevinClient {
   getSession(sessionId: string): Promise<SessionResponse> {
     return this.request('GET', `/organizations/${this.orgId}/sessions/${sessionId}`);
   }
+}
+
+export type SessionPhase = 'in_progress' | 'waiting_for_user' | 'suspended' | 'finished' | 'error';
+
+export function classifySessionPhase(session: SessionResponse): SessionPhase {
+  if (session.status === 'error') return 'error';
+  if (session.status === 'exit' || session.status_detail === 'finished') return 'finished';
+  if (session.status === 'suspended') return 'suspended';
+  if (session.status_detail === 'waiting_for_user') return 'waiting_for_user';
+  return 'in_progress';
 }
 
 export function createDevinClientFromConfig(config: Config): DevinClient {

@@ -1,0 +1,338 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "6499cbbc-dbfa-4f75-bcc8-f7399b11979b",
+  "prevId": "efb23c0f-a836-44a5-9a80-9956c0c47ec0",
+  "tables": {
+    "attempts": {
+      "name": "attempts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attempt_number": {
+          "name": "attempt_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome_reason": {
+          "name": "outcome_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "devin_session_id": {
+          "name": "devin_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "devin_session_url": {
+          "name": "devin_session_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pr_url": {
+          "name": "pr_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dispatched_at": {
+          "name": "dispatched_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_created_at": {
+          "name": "session_created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "structured_output_raw": {
+          "name": "structured_output_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "agent_outcome": {
+          "name": "agent_outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "agent_pr_url": {
+          "name": "agent_pr_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "agent_diagnosis": {
+          "name": "agent_diagnosis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "agent_tests_run": {
+          "name": "agent_tests_run",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "agent_risks": {
+          "name": "agent_risks",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "needs_human_reason": {
+          "name": "needs_human_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "structured_output_accepted_at": {
+          "name": "structured_output_accepted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "attempts_correlation_id_unique": {
+          "name": "attempts_correlation_id_unique",
+          "columns": [
+            "correlation_id"
+          ],
+          "isUnique": true
+        },
+        "attempts_devin_session_id_unique": {
+          "name": "attempts_devin_session_id_unique",
+          "columns": [
+            "devin_session_id"
+          ],
+          "isUnique": true
+        },
+        "attempts_task_attempt_unique": {
+          "name": "attempts_task_attempt_unique",
+          "columns": [
+            "task_id",
+            "attempt_number"
+          ],
+          "isUnique": true
+        },
+        "attempts_task_active_unique": {
+          "name": "attempts_task_active_unique",
+          "columns": [
+            "task_id"
+          ],
+          "isUnique": true,
+          "where": "\"attempts\".\"state\" IN ('pending', 'dispatching', 'session_created', 'running')"
+        }
+      },
+      "foreignKeys": {
+        "attempts_task_id_tasks_id_fk": {
+          "name": "attempts_task_id_tasks_id_fk",
+          "tableFrom": "attempts",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "attempts_attempt_number_check": {
+          "name": "attempts_attempt_number_check",
+          "value": "\"attempts\".\"attempt_number\" > 0"
+        },
+        "attempts_state_check": {
+          "name": "attempts_state_check",
+          "value": "\"attempts\".\"state\" IN ('pending', 'dispatching', 'session_created', 'running', 'completed')"
+        },
+        "attempts_outcome_check": {
+          "name": "attempts_outcome_check",
+          "value": "\"attempts\".\"outcome\" IS NULL OR \"attempts\".\"outcome\" IN ('succeeded', 'failed', 'cancelled', 'escalated')"
+        },
+        "attempts_completed_outcome_check": {
+          "name": "attempts_completed_outcome_check",
+          "value": "(\"attempts\".\"state\" = 'completed') = (\"attempts\".\"outcome\" IS NOT NULL)"
+        },
+        "attempts_session_id_check": {
+          "name": "attempts_session_id_check",
+          "value": "\"attempts\".\"state\" NOT IN ('session_created', 'running') OR \"attempts\".\"devin_session_id\" IS NOT NULL"
+        },
+        "attempts_agent_outcome_check": {
+          "name": "attempts_agent_outcome_check",
+          "value": "\"attempts\".\"agent_outcome\" IS NULL OR \"attempts\".\"agent_outcome\" IN ('remediated', 'needs_human', 'no_action')"
+        },
+        "attempts_succeeded_session_check": {
+          "name": "attempts_succeeded_session_check",
+          "value": "\"attempts\".\"outcome\" IS NULL OR \"attempts\".\"outcome\" <> 'succeeded' OR \"attempts\".\"devin_session_id\" IS NOT NULL"
+        }
+      }
+    },
+    "tasks": {
+      "name": "tasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "repo_owner": {
+          "name": "repo_owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "repo_name": {
+          "name": "repo_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issue_number": {
+          "name": "issue_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tasks_identity_unique": {
+          "name": "tasks_identity_unique",
+          "columns": [
+            "repo_owner",
+            "repo_name",
+            "issue_number"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tasks_issue_number_check": {
+          "name": "tasks_issue_number_check",
+          "value": "\"tasks\".\"issue_number\" > 0"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

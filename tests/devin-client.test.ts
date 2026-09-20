@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DevinApiError, DevinClient, createDevinClientFromConfig } from '../src/devin/client.js';
+import {
+  DevinApiError,
+  DevinClient,
+  classifySessionPhase,
+  createDevinClientFromConfig,
+  sessionResponseSchema,
+} from '../src/devin/client.js';
+import { structuredOutputJsonSchema } from '../src/devin/structured-output.js';
 import type { Config } from '../src/config.js';
 
 const sessionJson = {
@@ -80,6 +87,32 @@ describe('DevinClient', () => {
     expect(session.origin).toBe('api');
   });
 
+  it('sends structured_output_schema and structured_output_required in the create body', async () => {
+    const fetchFn = mockFetch();
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    await client.createSession({
+      prompt: 'hello',
+      structured_output_schema: structuredOutputJsonSchema,
+      structured_output_required: true,
+    });
+
+    const [, init] = fetchFn.mock.calls[0] ?? [];
+    expect(JSON.parse(init?.body as string)).toMatchObject({
+      structured_output_schema: structuredOutputJsonSchema,
+      structured_output_required: true,
+    });
+  });
+
+  it('exposes structured_output returned by a session GET', async () => {
+    const structuredOutput = { schema_version: 1, outcome: 'no_action' };
+    const fetchFn = mockFetch({ ...sessionJson, structured_output: structuredOutput });
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    const session = await client.getSession('devin-abc');
+    expect(session.structured_output).toEqual(structuredOutput);
+  });
+
   it('getSession GETs the session endpoint and returns the parsed response', async () => {
     const fetchFn = mockFetch();
     const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
@@ -140,6 +173,26 @@ describe('DevinClient', () => {
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
       'https://api.devin.ai/v3/organizations/org_123/sessions/devin-abc'
     );
+  });
+});
+
+describe('classifySessionPhase', () => {
+  const base = sessionResponseSchema.parse(sessionJson);
+
+  it.each([
+    ['running', 'working', 'in_progress'],
+    ['running', undefined, 'in_progress'],
+    ['new', undefined, 'in_progress'],
+    ['running', 'waiting_for_approval', 'in_progress'],
+    ['running', 'waiting_for_user', 'waiting_for_user'],
+    ['suspended', 'inactivity', 'suspended'],
+    ['suspended', undefined, 'suspended'],
+    ['exit', null, 'finished'],
+    ['running', 'finished', 'finished'],
+    ['error', 'usage_limit_exceeded', 'error'],
+    ['error', 'finished', 'error'],
+  ] as const)('status %s / detail %s -> %s', (status, statusDetail, expected) => {
+    expect(classifySessionPhase({ ...base, status, status_detail: statusDetail })).toBe(expected);
   });
 });
 

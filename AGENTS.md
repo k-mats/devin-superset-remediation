@@ -12,20 +12,24 @@ devin-superset-remediation/
 │   │   ├── client.ts         # Database client singleton
 │   │   └── task-state.ts     # Persistent task and attempt state
 │   ├── devin/                # Devin API
-│   │   └── client.ts         # Devin v3 Organization API client
+│   │   ├── client.ts         # Devin v3 Organization API client
+│   │   └── structured-output.ts # Structured output contract (Issue #10)
 │   ├── dispatch/             # Devin session dispatch
 │   │   └── devin-dispatcher.ts # Pending-attempt claim and session dispatch (Issues #8, #9)
 │   ├── github/               # GitHub API
 │   │   └── client.ts         # GitHub issue API client
 │   ├── intake/               # GitHub issue intake
 │   │   └── github-intake.ts  # Issue polling and task creation (Issue #7)
+│   ├── outcome/              # Session outcome collection
+│   │   └── collect-structured-output.ts # One-shot structured output collection (Issue #10)
 │   └── routes/               # Fastify routes
 │       └── health.ts         # Health check endpoint
 ├── scripts/
 │   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
 │   ├── state-restart-demo.ts # Persistent state restart demo (Issue #6)
 │   ├── intake-demo.ts        # Single GitHub intake pass demo (Issue #7)
-│   └── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)
+│   ├── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)
+│   └── structured-output-demo.ts       # Single structured output collection demo (Issue #10)
 ├── docs/
 │   └── evidence/             # Verification evidence artifacts
 ├── tests/
