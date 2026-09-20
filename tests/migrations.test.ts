@@ -33,8 +33,8 @@ function applyMigrations(sqlite: Database.Database, count: number) {
   }
 }
 
-describe('migrations 0003/0004 against a pre-existing database', () => {
-  it('upgrades a 0002-era database without losing rows and adds the check', () => {
+describe('migration 0005 against a pre-existing database', () => {
+  it('upgrades a pre-0005 database without losing rows and initializes new columns to NULL', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-0003-'));
     const sqlite = new Database(path.join(dir, 'legacy.db'));
     try {
@@ -63,10 +63,22 @@ describe('migrations 0003/0004 against a pre-existing database', () => {
         structured_output_raw: string | null;
         agent_outcome: string | null;
         structured_output_accepted_at: number | null;
+        devin_session_status: string | null;
+        devin_session_status_detail: string | null;
+        acus_consumed: number | null;
+        session_updated_at: number | null;
+        session_last_polled_at: number | null;
+        pr_number: number | null;
+        pr_state: string | null;
+        pr_head_sha: string | null;
+        pr_last_checked_at: number | null;
       };
       const row = sqlite
         .prepare(
-          `SELECT id, state, structured_output_raw, agent_outcome, structured_output_accepted_at
+          `SELECT id, state, structured_output_raw, agent_outcome, structured_output_accepted_at,
+                  devin_session_status, devin_session_status_detail, acus_consumed,
+                  session_updated_at, session_last_polled_at, pr_number, pr_state,
+                  pr_head_sha, pr_last_checked_at
            FROM attempts WHERE id = ?`
         )
         .get(attemptId) as Row;
@@ -76,6 +88,15 @@ describe('migrations 0003/0004 against a pre-existing database', () => {
         structured_output_raw: null,
         agent_outcome: null,
         structured_output_accepted_at: null,
+        devin_session_status: null,
+        devin_session_status_detail: null,
+        acus_consumed: null,
+        session_updated_at: null,
+        session_last_polled_at: null,
+        pr_number: null,
+        pr_state: null,
+        pr_head_sha: null,
+        pr_last_checked_at: null,
       });
 
       expect(() =>
