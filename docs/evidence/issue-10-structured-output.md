@@ -15,7 +15,7 @@ columns without touching the orchestrator's `outcome`/`pr_url`.
   `no_action` or `needs_human` (the contract, not the remediation, is under
   test).
 - Fresh SQLite database (`DATABASE_PATH=./data/issue-10-evidence.db`).
-- Branch `devin/1789924764-issue-10-structured-outcome` at `956f921`.
+- PR #51 branch (`devin/1789924764-issue-10-…`, name kept for continuity) at `956f921`.
 - `.env` did not provide `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `GITHUB_TOKEN`,
   `GITHUB_REPO_OWNER`, or `GITHUB_REPO_NAME`; all were supplied via the
   environment at run time. Values are not recorded here.
