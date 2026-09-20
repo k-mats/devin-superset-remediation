@@ -65,12 +65,12 @@ attempt, and `outcome_reason` records why a `cancelled` or `failed` attempt
 was completed.
 
 Each dispatched session is created with `structured_output_required` and a
-JSON Schema (version 1, defined in `src/devin/structured-outcome.ts`)
+JSON Schema (version 1, defined in `src/devin/structured-output.ts`)
 describing the agent's machine-readable result: `outcome` (`remediated`,
 `needs_human`, or `no_action`), `pr_url`, `diagnosis`, `tests_run`, `risks`,
 and `needs_human_reason`. The same contract is enforced locally by a zod
 schema with equivalent invariants (e.g. `remediated` requires a `pr_url`).
-Once the session turn is complete, `collectSessionOutcome` stores the raw
+Once the session turn is complete, `collectStructuredOutput` stores the raw
 payload in `structured_output_raw` and the validated fields in the `agent_*`
 /`needs_human_reason` columns — kept separate from the orchestrator's own
 `outcome`/`pr_url`, which a valid structured output does not change. Missing

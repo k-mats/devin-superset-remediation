@@ -13,7 +13,7 @@ import {
   type Db,
 } from '../db/task-state.js';
 import { isEligibleIssue } from '../intake/github-intake.js';
-import { structuredOutcomeJsonSchema } from '../devin/structured-outcome.js';
+import { structuredOutputJsonSchema } from '../devin/structured-output.js';
 
 export type DispatchDecision =
   | 'dispatched'
@@ -144,7 +144,7 @@ export async function dispatchAttempt(
       title: title.slice(0, MAX_TITLE_LENGTH),
       tags: buildSessionTags(task, claimed),
       max_acu_limit: opts.maxAcuPerSession,
-      structured_output_schema: structuredOutcomeJsonSchema,
+      structured_output_schema: structuredOutputJsonSchema,
       structured_output_required: true,
     });
   } catch (error: unknown) {

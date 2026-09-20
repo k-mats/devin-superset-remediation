@@ -142,20 +142,20 @@ with:
 pnpm demo:dispatch
 ```
 
-### Structured outcome collection (Issue #10)
+### Structured output collection (Issue #10)
 
 Dispatched sessions are created with `structured_output_required` and a JSON
-Schema (`src/devin/structured-outcome.ts`) so Devin finishes with a
+Schema (`src/devin/structured-output.ts`) so Devin finishes with a
 machine-readable `outcome` (`remediated`, `needs_human`, `no_action`), `pr_url`,
 `diagnosis`, `tests_run`, `risks`, and `needs_human_reason`.
-`collectSessionOutcome` (`src/outcome/session-outcome.ts`) fetches a finished
+`collectStructuredOutput` (`src/outcome/collect-structured-output.ts`) fetches a finished
 session, persists the raw payload and validated agent fields on the attempt,
 and escalates the attempt when the output is missing or invalid. Agent-reported
 fields are stored separately from the orchestrator's `outcome`/`pr_url`. Collect
 the outcome of a finished session once with:
 
 ```bash
-pnpm demo:outcome --attempt <id>          # or --correlation <uuid>
+pnpm demo:structured-output --attempt <id>          # or --correlation <uuid>
 ```
 
 ### Devin API smoke test (Issue #5)

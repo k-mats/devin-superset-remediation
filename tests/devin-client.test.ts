@@ -6,7 +6,7 @@ import {
   isSessionTurnComplete,
   sessionResponseSchema,
 } from '../src/devin/client.js';
-import { structuredOutcomeJsonSchema } from '../src/devin/structured-outcome.js';
+import { structuredOutputJsonSchema } from '../src/devin/structured-output.js';
 import type { Config } from '../src/config.js';
 
 const sessionJson = {
@@ -93,13 +93,13 @@ describe('DevinClient', () => {
 
     await client.createSession({
       prompt: 'hello',
-      structured_output_schema: structuredOutcomeJsonSchema,
+      structured_output_schema: structuredOutputJsonSchema,
       structured_output_required: true,
     });
 
     const [, init] = fetchFn.mock.calls[0] ?? [];
     expect(JSON.parse(init?.body as string)).toMatchObject({
-      structured_output_schema: structuredOutcomeJsonSchema,
+      structured_output_schema: structuredOutputJsonSchema,
       structured_output_required: true,
     });
   });

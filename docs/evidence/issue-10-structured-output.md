@@ -1,8 +1,8 @@
-# Issue #10 — Structured outcome evidence
+# Issue #10 — Structured output evidence
 
 ## Purpose
 
-Exercise the structured outcome contract end-to-end with one real Devin
+Exercise the structured output contract end-to-end with one real Devin
 session: dispatch a session with `structured_output_required` and the version 1
 JSON Schema, collect the session's `structured_output` once the turn is
 complete, and verify it is validated and persisted into the agent-reported
@@ -25,8 +25,8 @@ columns without touching the orchestrator's `outcome`/`pr_url`.
 ```bash
 pnpm demo:intake                  # creates task + pending attempt
 pnpm demo:dispatch                # creates session (poll 0 below)
-pnpm demo:outcome --attempt 1     # poll 0: turn incomplete
-pnpm demo:outcome --attempt 1     # poll 1 (~2 min later): recorded
+pnpm demo:structured-output --attempt 1     # poll 0: turn incomplete
+pnpm demo:structured-output --attempt 1     # poll 1 (~2 min later): recorded
 curl GET .../sessions/<id>        # independent read of the response shape
 ```
 
@@ -89,16 +89,16 @@ $ tsx scripts/dispatch-demo.ts
 attempt 1 state: 'session_created'
 
 ### outcome poll 0 (immediately after dispatch)
-$ tsx scripts/outcome-demo.ts --attempt 1
+$ tsx scripts/structured-output-demo.ts --attempt 1
 'Devin session turn is not complete; leaving outcome uncollected'
 Decision: session_not_finished
 structuredOutputRaw: null (nothing persisted)
 
 ### outcome poll 1 (~2 minutes later)
-$ tsx scripts/outcome-demo.ts --attempt 1
+$ tsx scripts/structured-output-demo.ts --attempt 1
 { attempt_id: 1, devin_session_id: '959dbaeaede348cea8eef5692d402dc1',
   agent_outcome: 'no_action', pr_url: null }
-'Recorded structured outcome from Devin session'
+'Recorded structured output from Devin session'
 Decision: recorded
 Raw structured_output:
 {

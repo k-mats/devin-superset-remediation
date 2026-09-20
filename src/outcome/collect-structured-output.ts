@@ -1,11 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { DevinClient, SessionResponse } from '../devin/client.js';
 import { isSessionTurnComplete } from '../devin/client.js';
-import type { StructuredOutcome } from '../devin/structured-outcome.js';
-import { parseStructuredOutcome } from '../devin/structured-outcome.js';
+import type { StructuredOutput } from '../devin/structured-output.js';
+import { parseStructuredOutput } from '../devin/structured-output.js';
 import { getDb } from '../db/client.js';
 import type { Attempt } from '../db/schema.js';
-import { completeAttempt, recordStructuredOutcome, type Db } from '../db/task-state.js';
+import { completeAttempt, recordStructuredOutput, type Db } from '../db/task-state.js';
 
 export type OutcomeCollectionDecision =
   | 'session_not_finished'
@@ -15,22 +15,22 @@ export type OutcomeCollectionDecision =
   | 'already_completed'
   | 'no_session';
 
-export interface SessionOutcomeOptions {
+export interface CollectStructuredOutputOptions {
   devin: Pick<DevinClient, 'getSession'>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
 }
 
-export interface SessionOutcomeResult {
+export interface CollectStructuredOutputResult {
   decision: OutcomeCollectionDecision;
   session?: SessionResponse;
-  outcome?: StructuredOutcome;
+  outcome?: StructuredOutput;
 }
 
-export async function collectSessionOutcome(
+export async function collectStructuredOutput(
   attempt: Attempt,
-  opts: SessionOutcomeOptions
-): Promise<SessionOutcomeResult> {
+  opts: CollectStructuredOutputOptions
+): Promise<CollectStructuredOutputResult> {
   const db = opts.db ?? getDb();
   const logContext = {
     attempt_id: attempt.id,
@@ -56,22 +56,22 @@ export async function collectSessionOutcome(
     return { decision: 'session_not_finished', session };
   }
 
-  const parsed = parseStructuredOutcome(session.structured_output);
+  const parsed = parseStructuredOutput(session.structured_output);
   if (parsed.ok) {
-    recordStructuredOutcome(
+    recordStructuredOutput(
       attempt.id,
       { raw: session.structured_output, parsed: parsed.value },
       db
     );
     opts.logger.info(
       { ...logContext, agent_outcome: parsed.value.outcome, pr_url: parsed.value.pr_url },
-      'Recorded structured outcome from Devin session'
+      'Recorded structured output from Devin session'
     );
     return { decision: 'recorded', session, outcome: parsed.value };
   }
 
   db.transaction((tx) => {
-    recordStructuredOutcome(attempt.id, { raw: session.structured_output, parsed: undefined }, tx);
+    recordStructuredOutput(attempt.id, { raw: session.structured_output, parsed: undefined }, tx);
     completeAttempt(attempt.id, 'escalated', { reason: `${parsed.reason}: ${parsed.message}` }, tx);
   });
   opts.logger.warn(

@@ -3,7 +3,7 @@ import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
-import type { StructuredOutcome } from '../devin/structured-outcome.js';
+import type { StructuredOutput } from '../devin/structured-output.js';
 import {
   attempts,
   type Attempt,
@@ -242,9 +242,9 @@ export function setPrUrl(attemptId: number, prUrl: string, db: DbExecutor = getD
   return requireAttempt(attemptId, db);
 }
 
-export function recordStructuredOutcome(
+export function recordStructuredOutput(
   attemptId: number,
-  input: { raw: unknown; parsed: StructuredOutcome | undefined },
+  input: { raw: unknown; parsed: StructuredOutput | undefined },
   db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);

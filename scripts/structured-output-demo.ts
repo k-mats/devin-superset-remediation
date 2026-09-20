@@ -5,7 +5,7 @@ import { config } from '../src/config.js';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { createDevinClientFromConfig } from '../src/devin/client.js';
 import { getAttempt, getAttemptByCorrelationId } from '../src/db/task-state.js';
-import { collectSessionOutcome } from '../src/outcome/session-outcome.js';
+import { collectStructuredOutput } from '../src/outcome/collect-structured-output.js';
 
 const logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'> = {
   info: (...args: unknown[]) => {
@@ -30,7 +30,9 @@ async function main(): Promise<number> {
     },
   });
   if (!values.attempt && !values.correlation) {
-    console.error('Usage: tsx scripts/outcome-demo.ts --attempt <id> | --correlation <uuid>');
+    console.error(
+      'Usage: tsx scripts/structured-output-demo.ts --attempt <id> | --correlation <uuid>'
+    );
     return 1;
   }
 
@@ -46,7 +48,7 @@ async function main(): Promise<number> {
     }
 
     const devin = createDevinClientFromConfig(config);
-    const result = await collectSessionOutcome(attempt, { devin, logger, db });
+    const result = await collectStructuredOutput(attempt, { devin, logger, db });
 
     console.log('Decision:', result.decision);
     console.log('Raw structured_output:');

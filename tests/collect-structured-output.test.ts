@@ -11,7 +11,7 @@ import {
   markSessionCreated,
   upsertTask,
 } from '../src/db/task-state.js';
-import { collectSessionOutcome } from '../src/outcome/session-outcome.js';
+import { collectStructuredOutput } from '../src/outcome/collect-structured-output.js';
 
 const identity = { repoOwner: 'owner', repoName: 'repo' };
 
@@ -50,7 +50,7 @@ function activeAttempt(sessionId = 'sess-1') {
   return markSessionCreated(attempt.id, { devinSessionId: sessionId });
 }
 
-describe('collectSessionOutcome', () => {
+describe('collectStructuredOutput', () => {
   beforeAll(() => {
     runMigrations();
   });
@@ -71,7 +71,7 @@ describe('collectSessionOutcome', () => {
       Promise.resolve(session({ status: 'running', status_detail: 'working' }))
     );
 
-    const result = await collectSessionOutcome(attempt, {
+    const result = await collectStructuredOutput(attempt, {
       devin: { getSession },
       logger: logger(),
     });
@@ -85,11 +85,11 @@ describe('collectSessionOutcome', () => {
     });
   });
 
-  it('records a valid structured outcome without touching outcome or prUrl', async () => {
+  it('records a valid structured output without touching outcome or prUrl', async () => {
     const attempt = activeAttempt();
     const getSession = vi.fn(() => Promise.resolve(session({ structured_output: validOutput })));
 
-    const result = await collectSessionOutcome(attempt, {
+    const result = await collectStructuredOutput(attempt, {
       devin: { getSession },
       logger: logger(),
     });
@@ -115,7 +115,7 @@ describe('collectSessionOutcome', () => {
     const attempt = activeAttempt();
     const getSession = vi.fn(() => Promise.resolve(session({ structured_output: null })));
 
-    const result = await collectSessionOutcome(attempt, {
+    const result = await collectStructuredOutput(attempt, {
       devin: { getSession },
       logger: logger(),
     });
@@ -136,7 +136,7 @@ describe('collectSessionOutcome', () => {
     const raw = { outcome: 'bogus' };
     const getSession = vi.fn(() => Promise.resolve(session({ structured_output: raw })));
 
-    const result = await collectSessionOutcome(attempt, {
+    const result = await collectStructuredOutput(attempt, {
       devin: { getSession },
       logger: logger(),
     });
@@ -163,7 +163,7 @@ describe('collectSessionOutcome', () => {
     });
 
     await expect(
-      collectSessionOutcome(attempt, { devin: { getSession }, logger: logger() })
+      collectStructuredOutput(attempt, { devin: { getSession }, logger: logger() })
     ).rejects.toBeInstanceOf(InvalidTransitionError);
     expect(getAttempt(attempt.id)).toMatchObject({
       state: 'completed',
@@ -178,7 +178,7 @@ describe('collectSessionOutcome', () => {
     const completed = completeAttempt(attempt.id, 'cancelled');
     const getSession = vi.fn();
 
-    const result = await collectSessionOutcome(completed, {
+    const result = await collectStructuredOutput(completed, {
       devin: { getSession },
       logger: logger(),
     });
@@ -192,7 +192,7 @@ describe('collectSessionOutcome', () => {
     const attempt = createAttempt(task.id);
     const getSession = vi.fn();
 
-    const result = await collectSessionOutcome(attempt, {
+    const result = await collectStructuredOutput(attempt, {
       devin: { getSession },
       logger: logger(),
     });

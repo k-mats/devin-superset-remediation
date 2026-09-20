@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { z } from 'zod';
-import type { AgentOutcome, StructuredOutcome } from '../devin/structured-outcome.js';
+import type { AgentOutcome, StructuredOutput } from '../devin/structured-output.js';
 
 export const ATTEMPT_STATES = [
   'pending',
@@ -60,9 +60,7 @@ export const attempts = sqliteTable(
     agentOutcome: text('agent_outcome').$type<AgentOutcome>(),
     agentPrUrl: text('agent_pr_url'),
     agentDiagnosis: text('agent_diagnosis'),
-    agentTestsRun: text('agent_tests_run', { mode: 'json' }).$type<
-      StructuredOutcome['tests_run']
-    >(),
+    agentTestsRun: text('agent_tests_run', { mode: 'json' }).$type<StructuredOutput['tests_run']>(),
     agentRisks: text('agent_risks', { mode: 'json' }).$type<string[]>(),
     needsHumanReason: text('needs_human_reason'),
   },

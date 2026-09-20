@@ -23,7 +23,7 @@ import {
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
-  recordStructuredOutcome,
+  recordStructuredOutput,
   setPrUrl,
   upsertTask,
 } from '../src/db/task-state.js';
@@ -203,7 +203,7 @@ describe('task state repository', () => {
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
     expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
-    expect(() => recordStructuredOutcome(attempt.id, { raw: null, parsed: undefined })).toThrow(
+    expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
       InvalidTransitionError
     );
   });

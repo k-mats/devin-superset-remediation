@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const STRUCTURED_OUTCOME_SCHEMA_VERSION = 1;
+export const STRUCTURED_OUTPUT_SCHEMA_VERSION = 1;
 
 export const AGENT_OUTCOMES = ['remediated', 'needs_human', 'no_action'] as const;
 export const TEST_RESULTS = ['passed', 'failed'] as const;
@@ -9,7 +9,7 @@ export type AgentOutcome = (typeof AGENT_OUTCOMES)[number];
 
 const PR_URL_PATTERN = '^https://github\\.com/[^/]+/[^/]+/pull/\\d+$';
 
-export const structuredOutcomeJsonSchema: Record<string, unknown> = {
+export const structuredOutputJsonSchema: Record<string, unknown> = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
   additionalProperties: false,
@@ -24,8 +24,8 @@ export const structuredOutcomeJsonSchema: Record<string, unknown> = {
   ],
   properties: {
     schema_version: {
-      const: STRUCTURED_OUTCOME_SCHEMA_VERSION,
-      description: 'Structured outcome contract version; always 1.',
+      const: STRUCTURED_OUTPUT_SCHEMA_VERSION,
+      description: 'Structured output contract version; always 1.',
     },
     outcome: {
       enum: [...AGENT_OUTCOMES],
@@ -99,9 +99,9 @@ export const structuredOutcomeJsonSchema: Record<string, unknown> = {
   ],
 };
 
-export const structuredOutcomeSchema = z
+export const structuredOutputSchema = z
   .strictObject({
-    schema_version: z.literal(STRUCTURED_OUTCOME_SCHEMA_VERSION),
+    schema_version: z.literal(STRUCTURED_OUTPUT_SCHEMA_VERSION),
     outcome: z.enum(AGENT_OUTCOMES),
     pr_url: z.url().regex(new RegExp(PR_URL_PATTERN)).nullable(),
     diagnosis: z.string().min(1),
@@ -146,17 +146,17 @@ export const structuredOutcomeSchema = z
     }
   });
 
-export type StructuredOutcome = z.infer<typeof structuredOutcomeSchema>;
+export type StructuredOutput = z.infer<typeof structuredOutputSchema>;
 
-export type ParseStructuredOutcomeResult =
-  | { ok: true; value: StructuredOutcome }
+export type ParseStructuredOutputResult =
+  | { ok: true; value: StructuredOutput }
   | {
       ok: false;
       reason: 'structured_output_missing' | 'structured_output_invalid';
       message: string;
     };
 
-export function parseStructuredOutcome(raw: unknown): ParseStructuredOutcomeResult {
+export function parseStructuredOutput(raw: unknown): ParseStructuredOutputResult {
   if (raw === null || raw === undefined) {
     return {
       ok: false,
@@ -164,7 +164,7 @@ export function parseStructuredOutcome(raw: unknown): ParseStructuredOutcomeResu
       message: 'session finished without structured output',
     };
   }
-  const parsed = structuredOutcomeSchema.safeParse(raw);
+  const parsed = structuredOutputSchema.safeParse(raw);
   if (!parsed.success) {
     const flattened = z.flattenError(parsed.error);
     const message = JSON.stringify({

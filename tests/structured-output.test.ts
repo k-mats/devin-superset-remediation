@@ -3,15 +3,15 @@ import addFormatsImport from 'ajv-formats';
 import type { FormatsPlugin } from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
 import {
-  parseStructuredOutcome,
-  structuredOutcomeJsonSchema,
-} from '../src/devin/structured-outcome.js';
+  parseStructuredOutput,
+  structuredOutputJsonSchema,
+} from '../src/devin/structured-output.js';
 
 // ajv-formats' CommonJS build exposes the plugin as both module.exports and
 // exports.default, which NodeNext typing cannot express; assert the shape.
 const addFormats = addFormatsImport as unknown as FormatsPlugin;
 const ajv = addFormats(new Ajv({ strict: true }));
-const validate = ajv.compile(structuredOutcomeJsonSchema);
+const validate = ajv.compile(structuredOutputJsonSchema);
 
 const base = {
   schema_version: 1,
@@ -138,21 +138,21 @@ const fixtures: Array<{ name: string; valid: boolean; value: unknown }> = [
   },
 ];
 
-describe('structured outcome contract', () => {
+describe('structured output contract', () => {
   it('JSON schema compiles under Ajv strict mode and stays under 64 KiB', () => {
     expect(typeof validate).toBe('function');
-    expect(JSON.stringify(structuredOutcomeJsonSchema).length).toBeLessThan(64 * 1024);
+    expect(JSON.stringify(structuredOutputJsonSchema).length).toBeLessThan(64 * 1024);
   });
 
   it.each(fixtures)('Ajv and zod agree on $name (valid=$valid)', ({ valid, value }) => {
     const ajvValid = validate(value);
-    const zodResult = parseStructuredOutcome(value);
+    const zodResult = parseStructuredOutput(value);
     expect(ajvValid).toBe(valid);
     expect(zodResult.ok).toBe(valid);
   });
 
   it.each([null, undefined])('missing structured output (%s) is reported as missing', (raw) => {
-    const result = parseStructuredOutcome(raw);
+    const result = parseStructuredOutput(raw);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('structured_output_missing');
@@ -160,7 +160,7 @@ describe('structured outcome contract', () => {
   });
 
   it('a non-object value is reported as invalid', () => {
-    const result = parseStructuredOutcome('not an object');
+    const result = parseStructuredOutput('not an object');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe('structured_output_invalid');

@@ -22,7 +22,7 @@ import {
   upsertTask,
   type Db,
 } from '../src/db/task-state.js';
-import { structuredOutcomeJsonSchema } from '../src/devin/structured-outcome.js';
+import { structuredOutputJsonSchema } from '../src/devin/structured-output.js';
 import { runIntakeOnce } from '../src/intake/github-intake.js';
 import {
   buildSessionPrompt,
@@ -384,7 +384,7 @@ describe('Devin dispatcher', () => {
     ]);
     expect(request?.max_acu_limit).toBe(7);
     expect(request?.structured_output_required).toBe(true);
-    expect(request?.structured_output_schema).toEqual(structuredOutcomeJsonSchema);
+    expect(request?.structured_output_schema).toEqual(structuredOutputJsonSchema);
     expect(request?.prompt).toContain('schema_version');
   });
 
