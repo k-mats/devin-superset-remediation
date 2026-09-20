@@ -1,0 +1,323 @@
+import type { FastifyBaseLogger } from 'fastify';
+import type { DevinClient, SessionResponse } from '../devin/client.js';
+import type { GitHubClient } from '../github/client.js';
+import { derivePrState, GitHubApiError } from '../github/client.js';
+import { getDb } from '../db/client.js';
+import type { Attempt, Task } from '../db/schema.js';
+import {
+  completeAttempt,
+  findAttemptsWithOpenPullRequests,
+  findTrackableAttempts,
+  getAttempt,
+  markRunning,
+  markVerifying,
+  recordPullRequest,
+  recordSessionSnapshot,
+  type Db,
+} from '../db/task-state.js';
+import { collectStructuredOutput } from '../outcome/collect-structured-output.js';
+import { verifyAgentPullRequest } from '../outcome/verify-pull-request.js';
+
+export type TrackingDecision =
+  | 'snapshot_only'
+  | 'marked_running'
+  | 'output_collected'
+  | 'escalated'
+  | 'completed_no_action'
+  | 'verifying'
+  | 'pr_refreshed'
+  | 'pr_lookup_deferred'
+  | 'failed';
+
+export interface TrackingResult {
+  trackable: number;
+  openPullRequests: number;
+  snapshots: number;
+  markedRunning: number;
+  outputCollected: number;
+  escalated: number;
+  completedNoAction: number;
+  verifying: number;
+  prRefreshed: number;
+  prLookupDeferred: number;
+  failed: number;
+}
+
+export interface SessionTrackerOptions {
+  devin: Pick<DevinClient, 'getSession'>;
+  github: Pick<GitHubClient, 'getPullRequest'>;
+  logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
+  db?: Db;
+  staleWarnMs: number;
+}
+
+export function toEpochMs(value: number): number {
+  return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+function logContext(attempt: Attempt) {
+  return {
+    attempt_id: attempt.id,
+    correlation_id: attempt.correlationId,
+    devin_session_id: attempt.devinSessionId,
+  };
+}
+
+function isActive(attempt: Attempt): boolean {
+  return ['session_created', 'running', 'verifying'].includes(attempt.state);
+}
+
+function isLookupDeferred(error: unknown): boolean {
+  return (
+    error instanceof GitHubApiError &&
+    (error.status === 429 || error.rateLimited || error.status >= 500)
+  );
+}
+
+async function refreshPullRequest(
+  attempt: Attempt,
+  task: Task,
+  opts: SessionTrackerOptions,
+  db: Db
+): Promise<'pr_refreshed' | 'pr_lookup_deferred' | undefined> {
+  if (attempt.prNumber === null || attempt.prUrl === null) return undefined;
+  try {
+    const pr = await opts.github.getPullRequest(task.repoOwner, task.repoName, attempt.prNumber);
+    recordPullRequest(
+      attempt.id,
+      {
+        prUrl: pr.html_url,
+        prNumber: pr.number,
+        prState: derivePrState(pr),
+        prHeadSha: pr.head.sha,
+      },
+      db
+    );
+    return 'pr_refreshed';
+  } catch (error: unknown) {
+    opts.logger.warn(
+      { ...logContext(attempt), err: error, pr_number: attempt.prNumber },
+      isLookupDeferred(error)
+        ? 'Pull request lookup failed transiently; deferring refresh'
+        : 'Pull request lookup failed; continuing'
+    );
+    return 'pr_lookup_deferred';
+  }
+}
+
+export async function trackAttemptOnce(
+  attempt: Attempt,
+  task: Task,
+  opts: SessionTrackerOptions
+): Promise<TrackingDecision> {
+  const db = opts.db ?? getDb();
+  const context = logContext(attempt);
+  if (!attempt.devinSessionId) return 'failed';
+
+  const session: SessionResponse = await opts.devin.getSession(attempt.devinSessionId);
+  recordSessionSnapshot(
+    attempt.id,
+    {
+      status: session.status,
+      statusDetail: session.status_detail,
+      acusConsumed: session.acus_consumed,
+      sessionUpdatedAt: toEpochMs(session.updated_at),
+    },
+    db
+  );
+  let current = getAttempt(attempt.id, db);
+  if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after snapshot`);
+
+  let decision: TrackingDecision = 'snapshot_only';
+  let enteredVerifying = false;
+  if (session.status === 'running' && current.state === 'session_created') {
+    current = markRunning(current.id, db);
+    decision = 'marked_running';
+  }
+
+  if (
+    opts.staleWarnMs > 0 &&
+    isActive(current) &&
+    Date.now() - Math.max(sessionUpdatedAt(session), current.sessionCreatedAt ?? 0) >
+      opts.staleWarnMs
+  ) {
+    opts.logger.warn(
+      { ...context, session_updated_at: toEpochMs(session.updated_at) },
+      'Devin session has not updated for longer than the stale threshold'
+    );
+  }
+
+  if (current.state !== 'verifying' && current.structuredOutputAcceptedAt === null) {
+    const collected = await collectStructuredOutput(current, {
+      devin: opts.devin,
+      logger: opts.logger,
+      db,
+      session,
+    });
+    if (collected.decision === 'recorded') decision = 'output_collected';
+    else if (collected.decision.startsWith('escalated')) decision = 'escalated';
+    current = getAttempt(current.id, db);
+    if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after collection`);
+  }
+
+  if (current.agentOutcome && current.state !== 'completed' && current.state !== 'verifying') {
+    if (current.agentOutcome === 'no_action') {
+      completeAttempt(current.id, 'no_action', { reason: 'agent_reported_no_action' }, db);
+      decision = 'completed_no_action';
+    } else if (current.agentOutcome === 'needs_human') {
+      completeAttempt(
+        current.id,
+        'escalated',
+        { reason: `needs_human: ${current.needsHumanReason ?? 'unspecified'}` },
+        db
+      );
+      decision = 'escalated';
+    } else if (!current.agentPrUrl) {
+      completeAttempt(current.id, 'escalated', { reason: 'remediated_without_pr' }, db);
+      decision = 'escalated';
+    } else {
+      const verification = await verifyAgentPullRequest(task, current.agentPrUrl, opts.github);
+      if (verification.ok) {
+        const currentAttemptId = current.id;
+        db.transaction((tx) => {
+          recordPullRequest(
+            currentAttemptId,
+            {
+              prUrl: verification.pr.url,
+              prNumber: verification.pr.number,
+              prState: verification.pr.state,
+              prHeadSha: verification.pr.headSha,
+            },
+            tx
+          );
+          const updated = getAttempt(currentAttemptId, tx);
+          if (updated?.state !== 'verifying') markVerifying(currentAttemptId, tx);
+        });
+        enteredVerifying = true;
+        decision = 'verifying';
+      } else if (verification.reason === 'lookup_failed') {
+        opts.logger.warn(
+          { ...context, reason: verification.reason, pr_url: current.agentPrUrl },
+          'Pull request verification lookup failed; retrying on the next poll'
+        );
+        decision = 'pr_lookup_deferred';
+      } else {
+        completeAttempt(
+          current.id,
+          'escalated',
+          { reason: `pr_${verification.reason}: ${current.agentPrUrl}` },
+          db
+        );
+        decision = 'escalated';
+      }
+    }
+  }
+
+  current = getAttempt(current.id, db);
+  if (!enteredVerifying && current?.state === 'verifying' && current.prUrl !== null) {
+    const refreshed = await refreshPullRequest(current, task, opts, db);
+    if (refreshed) decision = refreshed;
+  }
+  return decision;
+}
+
+function countDecision(result: TrackingResult, decision: TrackingDecision) {
+  if (decision === 'snapshot_only') result.snapshots += 1;
+  else if (decision === 'marked_running') result.markedRunning += 1;
+  else if (decision === 'output_collected') result.outputCollected += 1;
+  else if (decision === 'escalated') result.escalated += 1;
+  else if (decision === 'completed_no_action') result.completedNoAction += 1;
+  else if (decision === 'verifying') result.verifying += 1;
+  else if (decision === 'pr_refreshed') result.prRefreshed += 1;
+  else if (decision === 'pr_lookup_deferred') result.prLookupDeferred += 1;
+  else result.failed += 1;
+}
+
+export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<TrackingResult> {
+  const db = opts.db ?? getDb();
+  const rows = findTrackableAttempts(db);
+  const openRows = findAttemptsWithOpenPullRequests(db);
+  const result: TrackingResult = {
+    trackable: rows.length,
+    openPullRequests: openRows.length,
+    snapshots: 0,
+    markedRunning: 0,
+    outputCollected: 0,
+    escalated: 0,
+    completedNoAction: 0,
+    verifying: 0,
+    prRefreshed: 0,
+    prLookupDeferred: 0,
+    failed: 0,
+  };
+
+  for (const { attempt, task } of rows) {
+    let decision: TrackingDecision;
+    try {
+      decision = await trackAttemptOnce(attempt, task, opts);
+    } catch (error: unknown) {
+      opts.logger.error(
+        { err: error, ...logContext(attempt) },
+        'Session tracking failed for attempt'
+      );
+      decision = 'failed';
+    }
+    countDecision(result, decision);
+  }
+
+  for (const { attempt, task } of openRows) {
+    try {
+      const decision = await refreshPullRequest(attempt, task, opts, db);
+      if (decision) countDecision(result, decision);
+    } catch (error: unknown) {
+      opts.logger.error(
+        { err: error, ...logContext(attempt) },
+        'Pull request refresh failed for attempt'
+      );
+      result.failed += 1;
+    }
+  }
+
+  opts.logger.info(result, 'Devin session tracking completed');
+  return result;
+}
+
+function sessionUpdatedAt(session: SessionResponse): number {
+  return toEpochMs(session.updated_at);
+}
+
+export function startTrackingPoller(opts: SessionTrackerOptions & { intervalMs: number }): {
+  stop(): Promise<void>;
+} {
+  let inFlight = false;
+  let stopped = false;
+  let current: Promise<void> | undefined;
+
+  const run = () => {
+    if (stopped) return;
+    if (inFlight) {
+      opts.logger.debug('Skipping Devin tracking poll while previous run is in flight');
+      return;
+    }
+    inFlight = true;
+    current = runTrackingOnce(opts)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        opts.logger.error({ err: error }, 'Devin tracking run failed unexpectedly');
+      })
+      .finally(() => {
+        inFlight = false;
+        current = undefined;
+      });
+  };
+
+  run();
+  const interval = setInterval(run, opts.intervalMs);
+  return {
+    async stop() {
+      stopped = true;
+      clearInterval(interval);
+      await current;
+    },
+  };
+}

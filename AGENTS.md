@@ -21,7 +21,10 @@ devin-superset-remediation/
 │   ├── intake/               # GitHub issue intake
 │   │   └── github-intake.ts  # Issue polling and task creation (Issue #7)
 │   ├── outcome/              # Session outcome collection
-│   │   └── collect-structured-output.ts # One-shot structured output collection (Issue #10)
+│   │   ├── collect-structured-output.ts # One-shot structured output collection (Issue #10)
+│   │   └── verify-pull-request.ts # Agent PR verification (Issue #11)
+│   ├── tracking/
+│   │   └── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
 │   └── routes/               # Fastify routes
 │       └── health.ts         # Health check endpoint
 ├── scripts/
@@ -29,14 +32,16 @@ devin-superset-remediation/
 │   ├── state-restart-demo.ts # Persistent state restart demo (Issue #6)
 │   ├── intake-demo.ts        # Single GitHub intake pass demo (Issue #7)
 │   ├── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)
-│   └── structured-output-demo.ts       # Single structured output collection demo (Issue #10)
+│   ├── structured-output-demo.ts       # Single structured output collection demo (Issue #10)
+│   └── tracking-demo.ts       # Single session and PR tracking pass demo (Issue #11)
 ├── docs/
 │   └── evidence/             # Verification evidence artifacts
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
 │   ├── database.test.ts      # Database integration test
-│   └── task-state.test.ts    # Persistent task state tests
+│   ├── task-state.test.ts    # Persistent task state tests
+│   └── session-tracker.test.ts # Session and PR tracking tests
 ├── drizzle/                  # Drizzle migrations
 ├── package.json              # pnpm configuration
 ├── tsconfig.json             # TypeScript configuration

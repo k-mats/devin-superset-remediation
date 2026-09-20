@@ -25,7 +25,7 @@ import {
   markRunning,
   markSessionCreated,
   recordStructuredOutput,
-  setPrUrl,
+  recordPullRequest,
   upsertTask,
 } from '../src/db/task-state.js';
 
@@ -60,7 +60,12 @@ describe('task state repository', () => {
       devinSessionUrl: 'https://app.devin.ai/sessions/devin-101',
     });
     const running = markRunning(attempt.id);
-    const withPr = setPrUrl(attempt.id, 'https://github.com/k-mats/superset-fork/pull/101');
+    const withPr = recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/k-mats/superset-fork/pull/101',
+      prNumber: 101,
+      prState: 'open',
+      prHeadSha: 'sha',
+    });
     const completed = completeAttempt(attempt.id, 'succeeded');
 
     expect(dispatching.dispatchedAt).toEqual(expect.any(Number));
@@ -85,7 +90,12 @@ describe('task state repository', () => {
     markDispatching(first.id);
     markSessionCreated(first.id, { devinSessionId: 'restart-session' });
     markRunning(first.id);
-    setPrUrl(first.id, 'https://github.com/k-mats/superset-fork/pull/1');
+    recordPullRequest(first.id, {
+      prUrl: 'https://github.com/k-mats/superset-fork/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'sha',
+    });
     completeAttempt(first.id, 'succeeded');
     const second = createAttempt(task.id);
     markDispatching(second.id);
@@ -202,7 +212,14 @@ describe('task state repository', () => {
     expect(() => markDispatching(attempt.id)).toThrow(InvalidTransitionError);
     completeAttempt(attempt.id, 'succeeded');
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
-    expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
+    expect(() =>
+      recordPullRequest(attempt.id, {
+        prUrl: 'https://example.com/pr',
+        prNumber: 1,
+        prState: 'open',
+        prHeadSha: 'sha',
+      })
+    ).not.toThrow();
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
     expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
       InvalidTransitionError

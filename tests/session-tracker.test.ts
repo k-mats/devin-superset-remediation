@@ -1,0 +1,183 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { closeDb, getDb, runMigrations } from '../src/db/client.js';
+import { attempts, tasks } from '../src/db/schema.js';
+import type { SessionResponse } from '../src/devin/client.js';
+import {
+  createAttempt,
+  getAttempt,
+  markDispatching,
+  markSessionCreated,
+  upsertTask,
+} from '../src/db/task-state.js';
+import type { GitHubPullRequest } from '../src/github/client.js';
+import { runTrackingOnce, toEpochMs } from '../src/tracking/session-tracker.js';
+
+function logger() {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+}
+
+function session(overrides: Partial<SessionResponse> = {}): SessionResponse {
+  return {
+    session_id: 'sess-1',
+    url: 'https://app.devin.ai/sessions/sess-1',
+    status: 'exit',
+    status_detail: 'finished',
+    tags: [],
+    org_id: 'org',
+    created_at: 1_700_000_000,
+    updated_at: 1_700_000_001,
+    ...overrides,
+  };
+}
+
+function pullRequest(overrides: Partial<GitHubPullRequest> = {}): GitHubPullRequest {
+  return {
+    number: 12,
+    html_url: 'https://github.com/owner/repo/pull/12',
+    title: 'Fixes #7',
+    state: 'open',
+    merged_at: null,
+    body: null,
+    head: { sha: 'sha-1' },
+    base: { repo: { full_name: 'owner/repo' } },
+    ...overrides,
+  };
+}
+
+function activeAttempt(issueNumber = 7) {
+  const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber });
+  const attempt = createAttempt(task.id);
+  markDispatching(attempt.id);
+  return {
+    task,
+    attempt: markSessionCreated(attempt.id, {
+      devinSessionId: `sess-${String(issueNumber)}`,
+    }),
+  };
+}
+
+describe('session tracker', () => {
+  beforeAll(() => {
+    runMigrations();
+  });
+
+  beforeEach(() => {
+    const db = getDb();
+    db.delete(attempts).run();
+    db.delete(tasks).run();
+  });
+
+  afterAll(() => {
+    closeDb();
+  });
+
+  it('normalizes Devin seconds timestamps and records a running snapshot', async () => {
+    expect(toEpochMs(1_700_000_000)).toBe(1_700_000_000_000);
+    expect(toEpochMs(1_700_000_000_000)).toBe(1_700_000_000_000);
+    const { task, attempt } = activeAttempt();
+    const log = logger();
+    const result = await runTrackingOnce({
+      devin: {
+        getSession: vi
+          .fn()
+          .mockResolvedValue(session({ status: 'running', status_detail: 'working' })),
+      },
+      github: { getPullRequest: vi.fn() },
+      logger: log,
+      staleWarnMs: 0,
+    });
+
+    expect(result.markedRunning).toBe(1);
+    expect(getAttempt(attempt.id)).toMatchObject({
+      taskId: task.id,
+      state: 'running',
+      devinSessionStatus: 'running',
+      sessionUpdatedAt: 1_700_000_001_000,
+    });
+  });
+
+  it('completes a no-action structured outcome', async () => {
+    const { attempt } = activeAttempt();
+    await runTrackingOnce({
+      devin: {
+        getSession: vi.fn().mockResolvedValue(
+          session({
+            structured_output: {
+              schema_version: 1,
+              outcome: 'no_action',
+              pr_url: null,
+              diagnosis: 'Not applicable',
+              tests_run: [],
+              risks: [],
+              needs_human_reason: null,
+            },
+          })
+        ),
+      },
+      github: { getPullRequest: vi.fn() },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'completed',
+      outcome: 'no_action',
+      agentOutcome: 'no_action',
+    });
+  });
+
+  it('records a verified pull request and enters verifying', async () => {
+    const { attempt } = activeAttempt();
+    const github = vi.fn().mockResolvedValue(pullRequest());
+    await runTrackingOnce({
+      devin: {
+        getSession: vi.fn().mockResolvedValue(
+          session({
+            structured_output: {
+              schema_version: 1,
+              outcome: 'remediated',
+              pr_url: 'https://github.com/owner/repo/pull/12',
+              diagnosis: 'Fixed',
+              tests_run: [],
+              risks: [],
+              needs_human_reason: null,
+            },
+          })
+        ),
+      },
+      github: { getPullRequest: github },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'verifying',
+      outcome: null,
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    expect(github).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates a failed attempt from the rest of the tracking pass', async () => {
+    const first = activeAttempt(7);
+    const second = activeAttempt(8);
+    const getSession = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary Devin failure'))
+      .mockResolvedValueOnce(session({ status: 'running', status_detail: 'working' }));
+    const result = await runTrackingOnce({
+      devin: { getSession },
+      github: { getPullRequest: vi.fn() },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(result.failed).toBe(1);
+    expect(result.markedRunning).toBe(1);
+    expect(getAttempt(first.attempt.id)?.state).toBe('session_created');
+    expect(getAttempt(second.attempt.id)?.state).toBe('running');
+  });
+});

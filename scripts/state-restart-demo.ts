@@ -13,7 +13,7 @@ import {
   markDispatching,
   markRunning,
   markSessionCreated,
-  setPrUrl,
+  recordPullRequest,
   upsertTask,
 } from '../src/db/task-state.js';
 
@@ -35,7 +35,12 @@ function write() {
     devinSessionUrl: `https://app.devin.ai/sessions/${sessionId}?correlation_id=${first.correlationId}`,
   });
   markRunning(first.id);
-  setPrUrl(first.id, 'https://github.com/k-mats/superset-fork/pull/101');
+  recordPullRequest(first.id, {
+    prUrl: 'https://github.com/k-mats/superset-fork/pull/101',
+    prNumber: 101,
+    prState: 'open',
+    prHeadSha: 'demo-sha',
+  });
   completeAttempt(first.id, 'succeeded');
   const second = createAttempt(task.id);
   markDispatching(second.id);

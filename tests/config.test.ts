@@ -65,4 +65,22 @@ describe('configuration', () => {
       expect(() => loadConfig()).toThrow();
     });
   });
+
+  it('defaults tracking polling and stale warnings', () => {
+    delete process.env['DEVIN_TRACKING_INTERVAL_MS'];
+    delete process.env['DEVIN_SESSION_STALE_WARN_MS'];
+    const config = loadConfig();
+    expect(config.devinTrackingIntervalMs).toBe(60_000);
+    expect(config.devinSessionStaleWarnMs).toBe(21_600_000);
+  });
+
+  it('accepts zero tracking and stale warning intervals', () => {
+    process.env['DEVIN_TRACKING_INTERVAL_MS'] = '0';
+    process.env['DEVIN_SESSION_STALE_WARN_MS'] = '0';
+    const config = loadConfig();
+    expect(config.devinTrackingIntervalMs).toBe(0);
+    expect(config.devinSessionStaleWarnMs).toBe(0);
+    delete process.env['DEVIN_TRACKING_INTERVAL_MS'];
+    delete process.env['DEVIN_SESSION_STALE_WARN_MS'];
+  });
 });
