@@ -18,6 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "smoke:devin": "tsx scripts/devin-smoke.ts",
+    "demo:restart": "tsx scripts/state-restart-demo.ts",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test && pnpm build"
   },
   "packageManager": "pnpm@12.4.2",

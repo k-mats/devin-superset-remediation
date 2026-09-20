@@ -18,7 +18,7 @@ export function healthRoutes(fastify: FastifyInstance) {
         throw new Error('Database not initialized');
       }
       // Query an application table so readiness also proves the schema exists
-      sqlite.prepare('SELECT COUNT(*) FROM sessions').get();
+      sqlite.prepare('SELECT COUNT(*) FROM tasks').get();
 
       await reply.code(200).send({
         status: 'ready',

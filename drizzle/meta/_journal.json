@@ -8,6 +8,13 @@
       "when": 1789817391454,
       "tag": "0000_cool_turbo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789910791145,
+      "tag": "0001_nosy_gateway",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,7 @@ export function getDb() {
 
   // Initialize SQLite database
   sqlite = new Database(dbPath);
+  sqlite.pragma('foreign_keys = ON');
   db = drizzle(sqlite);
   return db;
 }

@@ -50,12 +50,15 @@ verification/reporting
 
 ## Persistence
 
-The orchestrator persists:
-
-- GitHub event metadata
-- Devin session IDs and status
-- Mapping between issues and sessions
-- **Technology**: SQLite with Drizzle ORM and better-sqlite3 driver
+The orchestrator stores each GitHub issue as a `tasks` row and each Devin
+execution as an `attempts` row. Attempt state moves from `pending` to
+`dispatching` to `session_created` to `running` to `completed`, with outcomes
+of `succeeded`, `failed`, `cancelled`, or `escalated`. The orchestrator commits
+`dispatching` before calling the Devin session API, then saves
+`devin_session_id` and `session_created` after success. A `dispatching` attempt
+with a NULL session ID is the reconciliation signal after a crash.
+`correlation_id` is the stable identifier reserved for a future Devin session
+tag.
 
 ## Architectural Constraints
 
