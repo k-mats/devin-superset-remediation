@@ -255,13 +255,13 @@ export function recordStructuredOutput(
   db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
+  if (attempt.structuredOutputAcceptedAt !== null) {
+    throw new StructuredOutputAlreadyAcceptedError(attemptId);
+  }
   if (attempt.state === 'completed') {
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
   const parsed = input.parsed;
-  if (attempt.structuredOutputAcceptedAt !== null) {
-    throw new StructuredOutputAlreadyAcceptedError(attemptId);
-  }
   const set: Partial<typeof attempts.$inferInsert> = {
     structuredOutputRaw:
       input.raw === undefined || input.raw === null ? null : JSON.stringify(input.raw),

@@ -274,6 +274,34 @@ describe('collectStructuredOutput', () => {
     expect(JSON.parse(stored?.structuredOutputRaw as string)).toEqual(validOutput);
   });
 
+  it('returns already_recorded when a concurrent collector accepted and escalated first', async () => {
+    const staleAttempt = activeAttempt();
+    const getSession = vi.fn<DevinClient['getSession']>(() =>
+      Promise.resolve(
+        session({ status: 'error', status_detail: 'usage_limit_exceeded', structured_output: null })
+      )
+    );
+
+    const result = await collectStructuredOutput(staleAttempt, {
+      devin: {
+        getSession: (sessionId: string) => {
+          recordStructuredOutput(staleAttempt.id, { raw: validOutput, parsed: validOutput });
+          completeAttempt(staleAttempt.id, 'succeeded');
+          return getSession(sessionId);
+        },
+      },
+      logger: logger(),
+    });
+
+    expect(result.decision).toBe('already_recorded');
+    const stored = getAttempt(staleAttempt.id);
+    expect(stored).toMatchObject({
+      state: 'completed',
+      outcome: 'succeeded',
+      agentOutcome: 'remediated',
+    });
+  });
+
   it('rolls back the raw write when another writer completes the attempt mid-collection', async () => {
     const attempt = activeAttempt();
     const getSession = vi.fn(() => {

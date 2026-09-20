@@ -250,6 +250,22 @@ describe('task state repository', () => {
     expect(after?.agentOutcome).toBe('no_action');
     expect(after?.structuredOutputRaw).toBe(recorded.structuredOutputRaw);
     expect(after?.state).toBe('session_created');
+
+    // Once the attempt is completed, acceptance still wins over the
+    // completed-state guard so concurrent collectors see AlreadyAccepted.
+    completeAttempt(attempt.id, 'escalated', { reason: 'done' });
+    expect(() => recordStructuredOutput(attempt.id, { raw: parsed, parsed })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+    expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+
+    const plain = createAttempt(task.id);
+    completeAttempt(plain.id, 'cancelled');
+    expect(() => recordStructuredOutput(plain.id, { raw: null, parsed: undefined })).toThrow(
+      InvalidTransitionError
+    );
   });
 
   it('rejects stale completion and preserves the newer outcome', () => {
