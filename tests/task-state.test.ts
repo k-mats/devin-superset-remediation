@@ -18,6 +18,7 @@ import {
   getAttemptByCorrelationId,
   getTaskByIdentity,
   InvalidTransitionError,
+  StructuredOutputAlreadyAcceptedError,
   listAttempts,
   markDispatching,
   releaseDispatchClaim,
@@ -206,6 +207,46 @@ describe('task state repository', () => {
     expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
       InvalidTransitionError
     );
+  });
+
+  it('accepts a structured output only once', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'sess' });
+    const parsed = {
+      schema_version: 1 as const,
+      outcome: 'no_action' as const,
+      pr_url: null,
+      diagnosis: 'd',
+      tests_run: [],
+      risks: [],
+      needs_human_reason: null,
+    };
+
+    const recorded = recordStructuredOutput(attempt.id, { raw: parsed, parsed });
+    expect(recorded.agentOutcome).toBe('no_action');
+    expect(recorded.structuredOutputAcceptedAt).toEqual(expect.any(Number));
+
+    const second = {
+      ...parsed,
+      outcome: 'needs_human' as const,
+      needs_human_reason: 'needs a call',
+    };
+    expect(() => recordStructuredOutput(attempt.id, { raw: second, parsed: second })).toThrow(
+      StructuredOutputAlreadyAcceptedError
+    );
+
+    const stored = listAttempts(task.id)[0];
+    expect(stored?.agentOutcome).toBe('no_action');
+    expect(stored?.structuredOutputAcceptedAt).toBe(recorded.structuredOutputAcceptedAt);
+    // Evidence-only writes (no parsed value) remain allowed.
+    const evidenceOnly = recordStructuredOutput(attempt.id, {
+      raw: { partial: true },
+      parsed: undefined,
+    });
+    expect(evidenceOnly.agentOutcome).toBeNull();
+    expect(evidenceOnly.structuredOutputAcceptedAt).toBe(recorded.structuredOutputAcceptedAt);
   });
 
   it('rejects stale completion and preserves the newer outcome', () => {

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   DevinApiError,
   DevinClient,
+  classifySessionPhase,
   createDevinClientFromConfig,
-  isSessionTurnComplete,
   sessionResponseSchema,
 } from '../src/devin/client.js';
 import { structuredOutputJsonSchema } from '../src/devin/structured-output.js';
@@ -176,19 +176,23 @@ describe('DevinClient', () => {
   });
 });
 
-describe('isSessionTurnComplete', () => {
+describe('classifySessionPhase', () => {
   const base = sessionResponseSchema.parse(sessionJson);
 
   it.each([
-    ['running', 'working', false],
-    ['running', 'waiting_for_user', true],
-    ['running', 'waiting_for_approval', false],
-    ['exit', 'finished', true],
-    ['error', 'error', true],
-    ['suspended', undefined, true],
-    ['running', undefined, false],
+    ['running', 'working', 'in_progress'],
+    ['running', undefined, 'in_progress'],
+    ['new', undefined, 'in_progress'],
+    ['running', 'waiting_for_approval', 'in_progress'],
+    ['running', 'waiting_for_user', 'waiting_for_user'],
+    ['suspended', 'inactivity', 'suspended'],
+    ['suspended', undefined, 'suspended'],
+    ['exit', null, 'finished'],
+    ['running', 'finished', 'finished'],
+    ['error', 'usage_limit_exceeded', 'error'],
+    ['error', 'finished', 'error'],
   ] as const)('status %s / detail %s -> %s', (status, statusDetail, expected) => {
-    expect(isSessionTurnComplete({ ...base, status, status_detail: statusDetail })).toBe(expected);
+    expect(classifySessionPhase({ ...base, status, status_detail: statusDetail })).toBe(expected);
   });
 });
 

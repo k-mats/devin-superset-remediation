@@ -62,6 +62,20 @@ Notes:
   observation: the session kept `status: "running"` while already carrying
   the final `structured_output`.
 
+## Post-run changes
+
+The session-phase handling was refined after this run (same PR): the boolean
+turn-complete check became `classifySessionPhase` (`in_progress`,
+`waiting_for_user`, `suspended`, `finished`, `error`) and the collector's
+decision names were extended (`awaiting_user_without_output`,
+`session_suspended_without_output`, `escalated_session_error`,
+`already_recorded`); `structured_output_accepted_at` was added for idempotent
+acceptance. Under the current code, the run's poll 0 maps to
+`session_not_finished` and poll 1 maps to `recorded` — the live session's
+`running`/`waiting_for_user` plus valid `structured_output` still records.
+The migration was regenerated and squashed into `0003_yielding_lily_hollister`
+(columns) + `0004_stormy_purifiers` (CHECK constraint).
+
 ## Not verified
 
 - No PR was opened (`no_action`), so the `remediated`/`needs_human` paths were

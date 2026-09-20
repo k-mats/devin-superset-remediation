@@ -50,7 +50,7 @@ async function main(): Promise<number> {
     const devin = createDevinClientFromConfig(config);
     const result = await collectStructuredOutput(attempt, { devin, logger, db });
 
-    console.log('Decision:', result.decision);
+    console.log('Decision:', result.decision, 'phase:', result.phase ?? '(none)');
     console.log('Raw structured_output:');
     console.log(JSON.stringify(result.session?.structured_output ?? null, null, 2));
     console.log('Attempt row:');

@@ -150,16 +150,14 @@ export class DevinClient {
   }
 }
 
-const FINISHED_STATUSES: readonly SessionStatus[] = ['exit', 'error', 'suspended'];
-const FINISHED_STATUS_DETAILS: readonly SessionStatusDetail[] = ['finished', 'waiting_for_user'];
+export type SessionPhase = 'in_progress' | 'waiting_for_user' | 'suspended' | 'finished' | 'error';
 
-export function isSessionTurnComplete(session: SessionResponse): boolean {
-  return (
-    FINISHED_STATUSES.includes(session.status) ||
-    (session.status_detail !== null &&
-      session.status_detail !== undefined &&
-      FINISHED_STATUS_DETAILS.includes(session.status_detail))
-  );
+export function classifySessionPhase(session: SessionResponse): SessionPhase {
+  if (session.status === 'error') return 'error';
+  if (session.status === 'exit' || session.status_detail === 'finished') return 'finished';
+  if (session.status === 'suspended') return 'suspended';
+  if (session.status_detail === 'waiting_for_user') return 'waiting_for_user';
+  return 'in_progress';
 }
 
 export function createDevinClientFromConfig(config: Config): DevinClient {

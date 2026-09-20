@@ -63,6 +63,7 @@ export const attempts = sqliteTable(
     agentTestsRun: text('agent_tests_run', { mode: 'json' }).$type<StructuredOutput['tests_run']>(),
     agentRisks: text('agent_risks', { mode: 'json' }).$type<string[]>(),
     needsHumanReason: text('needs_human_reason'),
+    structuredOutputAcceptedAt: integer('structured_output_accepted_at'),
   },
   (table) => [
     uniqueIndex('attempts_task_attempt_unique').on(table.taskId, table.attemptNumber),

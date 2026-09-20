@@ -579,6 +579,7 @@ describe('prompt and tag builders', () => {
       agentTestsRun: null,
       agentRisks: null,
       needsHumanReason: null,
+      structuredOutputAcceptedAt: null,
     } satisfies Attempt;
 
     const prompt = buildSessionPrompt(task, issue({ body: null }), attempt);

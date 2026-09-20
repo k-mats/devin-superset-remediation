@@ -148,11 +148,18 @@ Dispatched sessions are created with `structured_output_required` and a JSON
 Schema (`src/devin/structured-output.ts`) so Devin finishes with a
 machine-readable `outcome` (`remediated`, `needs_human`, `no_action`), `pr_url`,
 `diagnosis`, `tests_run`, `risks`, and `needs_human_reason`.
-`collectStructuredOutput` (`src/outcome/collect-structured-output.ts`) fetches a finished
-session, persists the raw payload and validated agent fields on the attempt,
-and escalates the attempt when the output is missing or invalid. Agent-reported
-fields are stored separately from the orchestrator's `outcome`/`pr_url`. Collect
-the outcome of a finished session once with:
+`collectStructuredOutput` (`src/outcome/collect-structured-output.ts`) classifies
+the fetched session into a phase (`in_progress`, `waiting_for_user`,
+`suspended`, `finished`, `error`) and returns a decision: `recorded` when a
+valid output is accepted (idempotent via `structured_output_accepted_at`;
+repeat calls return `already_recorded`), `session_not_finished` /
+`awaiting_user_without_output` / `session_suspended_without_output` when there
+is nothing to collect yet, `escalated_missing` / `escalated_invalid` when a
+finished session's output is absent or malformed, and `escalated_session_error`
+when the session itself errored. `no_session` and `already_completed` cover
+attempts without a Devin session or already completed. Agent-reported fields
+are stored separately from the orchestrator's `outcome`/`pr_url`. Collect the
+output of a finished session once with:
 
 ```bash
 pnpm demo:structured-output --attempt <id>          # or --correlation <uuid>

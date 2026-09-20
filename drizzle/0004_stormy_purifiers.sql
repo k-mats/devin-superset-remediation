@@ -22,6 +22,7 @@ CREATE TABLE `__new_attempts` (
 	`agent_tests_run` text,
 	`agent_risks` text,
 	`needs_human_reason` text,
+	`structured_output_accepted_at` integer,
 	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "attempts_attempt_number_check" CHECK("__new_attempts"."attempt_number" > 0),
 	CONSTRAINT "attempts_state_check" CHECK("__new_attempts"."state" IN ('pending', 'dispatching', 'session_created', 'running', 'completed')),
@@ -32,7 +33,7 @@ CREATE TABLE `__new_attempts` (
 	CONSTRAINT "attempts_succeeded_session_check" CHECK("__new_attempts"."outcome" IS NULL OR "__new_attempts"."outcome" <> 'succeeded' OR "__new_attempts"."devin_session_id" IS NOT NULL)
 );
 --> statement-breakpoint
-INSERT INTO `__new_attempts`("id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "pr_url", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason") SELECT "id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "pr_url", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason" FROM `attempts`;--> statement-breakpoint
+INSERT INTO `__new_attempts`("id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "pr_url", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason", "structured_output_accepted_at") SELECT "id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "pr_url", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason", "structured_output_accepted_at" FROM `attempts`;--> statement-breakpoint
 DROP TABLE `attempts`;--> statement-breakpoint
 ALTER TABLE `__new_attempts` RENAME TO `attempts`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint

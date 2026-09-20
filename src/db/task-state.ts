@@ -53,6 +53,13 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+export class StructuredOutputAlreadyAcceptedError extends Error {
+  constructor(attemptId: number) {
+    super(`Attempt ${String(attemptId)} already has an accepted structured output`);
+    this.name = 'StructuredOutputAlreadyAcceptedError';
+  }
+}
+
 export class ActiveAttemptExistsError extends Error {
   constructor(taskId: number) {
     super(`Task ${String(taskId)} already has an active attempt`);
@@ -252,22 +259,34 @@ export function recordStructuredOutput(
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
   const parsed = input.parsed;
+  if (parsed !== undefined && attempt.structuredOutputAcceptedAt !== null) {
+    throw new StructuredOutputAlreadyAcceptedError(attemptId);
+  }
+  const set: Partial<typeof attempts.$inferInsert> = {
+    structuredOutputRaw:
+      input.raw === undefined || input.raw === null ? null : JSON.stringify(input.raw),
+    agentOutcome: parsed?.outcome ?? null,
+    agentPrUrl: parsed?.pr_url ?? null,
+    agentDiagnosis: parsed?.diagnosis ?? null,
+    agentTestsRun: parsed?.tests_run ?? null,
+    agentRisks: parsed?.risks ?? null,
+    needsHumanReason: parsed?.needs_human_reason ?? null,
+    updatedAt: Date.now(),
+  };
+  const where = [eq(attempts.id, attemptId), eq(attempts.state, attempt.state)];
+  if (parsed !== undefined) {
+    set.structuredOutputAcceptedAt = Date.now();
+    where.push(isNull(attempts.structuredOutputAcceptedAt));
+  }
   const result = db
     .update(attempts)
-    .set({
-      structuredOutputRaw:
-        input.raw === undefined || input.raw === null ? null : JSON.stringify(input.raw),
-      agentOutcome: parsed?.outcome ?? null,
-      agentPrUrl: parsed?.pr_url ?? null,
-      agentDiagnosis: parsed?.diagnosis ?? null,
-      agentTestsRun: parsed?.tests_run ?? null,
-      agentRisks: parsed?.risks ?? null,
-      needsHumanReason: parsed?.needs_human_reason ?? null,
-      updatedAt: Date.now(),
-    })
-    .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
+    .set(set)
+    .where(and(...where))
     .run();
   if (result.changes !== 1) {
+    if (parsed !== undefined) {
+      throw new StructuredOutputAlreadyAcceptedError(attemptId);
+    }
     throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
   }
   return requireAttempt(attemptId, db);
