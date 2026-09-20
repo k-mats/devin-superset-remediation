@@ -90,9 +90,10 @@ async function main(): Promise<number> {
     if (remaining <= 0) break;
     await sleep(Math.min(POLL_INTERVAL_MS, remaining));
     current = await client.getSession(session.session_id);
+    const receivedAt = Date.now();
     observe(current);
     console.error(`status: ${current.status} (detail: ${current.status_detail ?? 'n/a'})`);
-    terminalByDeadline = isTerminal(current) && Date.now() < deadline;
+    terminalByDeadline = isTerminal(current) && receivedAt < deadline;
   }
 
   const timedOut = !terminalByDeadline;
