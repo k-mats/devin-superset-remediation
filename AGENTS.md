@@ -10,8 +10,14 @@ devin-superset-remediation/
 │   ├── db/                   # Database
 │   │   ├── schema.ts         # Drizzle schema definitions
 │   │   └── client.ts         # Database client singleton
+│   ├── devin/                # Devin API
+│   │   └── client.ts         # Devin v3 Organization API client
 │   └── routes/               # Fastify routes
 │       └── health.ts         # Health check endpoint
+├── scripts/
+│   └── devin-smoke.ts        # Devin API smoke test (Issue #5)
+├── docs/
+│   └── evidence/             # Verification evidence artifacts
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
