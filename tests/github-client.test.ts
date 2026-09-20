@@ -26,6 +26,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinApiKey: undefined,
     devinOrgId: undefined,
     devinApiUrl: 'https://api.devin.ai/v3',
+    devinDispatchIntervalMs: 0,
+    devinMaxAcuPerSession: 5,
     ...overrides,
   };
 }
@@ -76,6 +78,34 @@ describe('GitHubClient', () => {
     expect(error).toBeInstanceOf(GitHubApiError);
     expect(error).toMatchObject({ status: 500 });
     expect(String(error)).not.toContain('test-token');
+  });
+
+  it('fetches a single issue by number', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ ...issue, body: 'describe it' }), { status: 200 })
+      )
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const result = await client.getIssue('owner', 'repo', 7);
+
+    const [url, init] = fetchFn.mock.calls[0] ?? [];
+    expect(url).toBe('https://api.github.com/repos/owner/repo/issues/7');
+    expect(init?.method).toBe('GET');
+    expect((init?.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+    expect(result).toMatchObject({ number: 7, body: 'describe it' });
+  });
+
+  it('throws GitHubApiError for a missing issue', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('Not Found', { status: 404 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client.getIssue('owner', 'repo', 404).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(error).toMatchObject({ status: 404 });
   });
 
   it('throws for an invalid response shape', async () => {

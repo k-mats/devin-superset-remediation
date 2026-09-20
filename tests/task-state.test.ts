@@ -3,8 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
 import {
+  ActiveAttemptExistsError,
+  claimAttemptForDispatch,
   completeAttempt,
   createAttempt,
+  findPendingAttempts,
   findStaleDispatchingAttempts,
   getAttemptByCorrelationId,
   getTaskByIdentity,
@@ -104,18 +107,25 @@ describe('task state repository', () => {
       repoName: 'repo',
       issueNumber: 1,
     });
-    const created = [createAttempt(task.id), createAttempt(task.id), createAttempt(task.id)];
+    const first = createAttempt(task.id);
+    completeAttempt(first.id, 'cancelled');
+    const second = createAttempt(task.id);
+    completeAttempt(second.id, 'cancelled');
+    const third = createAttempt(task.id);
+    const created = [first, second, third];
 
     expect(created.map((attempt) => attempt.attemptNumber)).toEqual([1, 2, 3]);
     expect(new Set(created.map((attempt) => attempt.correlationId)).size).toBe(3);
     expect(listAttempts(task.id).map((attempt) => attempt.id)).toEqual(
       created.map((attempt) => attempt.id)
     );
-    const second = created[1];
-    if (!second) {
+    const secondAttempt = created[1];
+    if (!secondAttempt) {
       throw new Error('Second attempt was not created');
     }
-    expect(getAttemptByCorrelationId(second.correlationId)).toEqual(second);
+    expect(getAttemptByCorrelationId(secondAttempt.correlationId)).toEqual(
+      listAttempts(task.id)[1]
+    );
   });
 
   it('upserts a task by repository identity', () => {
@@ -256,12 +266,17 @@ describe('task state repository', () => {
       )
     ).toThrow();
 
+    // A second active attempt for the same task violates the partial unique index.
+    expect(() =>
+      insertAttempt.run(task.id, 2, randomUUID(), 'pending', null, null, timestamp, timestamp)
+    ).toThrow();
+
     insertAttempt.run(
       task.id,
       2,
       randomUUID(),
-      'pending',
-      null,
+      'completed',
+      'failed',
       'duplicate-session',
       timestamp,
       timestamp
@@ -271,8 +286,8 @@ describe('task state repository', () => {
         task.id,
         3,
         randomUUID(),
-        'pending',
-        null,
+        'completed',
+        'failed',
         'duplicate-session',
         timestamp,
         timestamp
@@ -323,14 +338,108 @@ describe('task state repository', () => {
     ).toThrow();
   });
 
-  it('finds only dispatching attempts without sessions', () => {
+  it('accepts both the database and a transaction as DbExecutor', () => {
+    const db = getDb();
+    db.transaction((tx) => {
+      const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 }, tx);
+      const attempt = createAttempt(task.id, tx);
+      expect(
+        getTaskByIdentity({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 }, tx)
+      ).toEqual(task);
+      expect(listAttempts(task.id, tx)).toEqual([attempt]);
+    });
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 });
+    expect(getTaskByIdentity({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 }, db)).toEqual(
+      task
+    );
+  });
+
+  it('claims a pending attempt atomically and returns undefined otherwise', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const stale = createAttempt(task.id);
+    const attempt = createAttempt(task.id);
+
+    const claimed = claimAttemptForDispatch(attempt.id);
+    expect(claimed).toMatchObject({ id: attempt.id, state: 'dispatching' });
+    expect(claimed?.dispatchedAt).toEqual(expect.any(Number));
+
+    expect(claimAttemptForDispatch(attempt.id)).toBeUndefined();
+  });
+
+  it('rejects markDispatching on a non-pending attempt', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    claimAttemptForDispatch(attempt.id);
+
+    expect(() => markDispatching(attempt.id)).toThrow(InvalidTransitionError);
+  });
+
+  it('allows pending -> completed (cancelled) but not succeeded without a session', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const cancelled = createAttempt(task.id);
+    expect(() => completeAttempt(cancelled.id, 'succeeded')).toThrow(InvalidTransitionError);
+    const completed = completeAttempt(cancelled.id, 'cancelled', { reason: 'label_missing' });
+    expect(completed).toMatchObject({
+      state: 'completed',
+      outcome: 'cancelled',
+      outcomeReason: 'label_missing',
+    });
+
+    const another = createAttempt(task.id);
+    markDispatching(another.id);
+    expect(() => completeAttempt(another.id, 'succeeded')).toThrow(InvalidTransitionError);
+  });
+
+  it('persists the outcome reason on completion', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const completed = completeAttempt(attempt.id, 'failed', {
+      reason: 'eligibility_check_failed: boom',
+    });
+    expect(completed.outcomeReason).toBe('eligibility_check_failed: boom');
+    expect(listAttempts(task.id)[0]?.outcomeReason).toBe('eligibility_check_failed: boom');
+  });
+
+  it('rejects a second active attempt but allows one after completion', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const first = createAttempt(task.id);
+
+    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    markDispatching(first.id);
+    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    markSessionCreated(first.id, { devinSessionId: 'active-session' });
+    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    markRunning(first.id);
+    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+
+    completeAttempt(first.id, 'succeeded');
+    expect(createAttempt(task.id).state).toBe('pending');
+  });
+
+  it('lists pending attempts in insertion order with their tasks', () => {
+    const first = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const second = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 });
+    const third = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 3 });
+    const firstAttempt = createAttempt(first.id);
+    const claimed = createAttempt(second.id);
+    claimAttemptForDispatch(claimed.id);
+    const thirdAttempt = createAttempt(third.id);
+
+    const rows = findPendingAttempts();
+    expect(rows.map((row) => row.attempt.id)).toEqual([firstAttempt.id, thirdAttempt.id]);
+    expect(rows[0]?.task.id).toBe(first.id);
+    expect(rows[1]?.task.id).toBe(third.id);
+  });
+
+  it('finds only dispatching attempts without sessions', () => {
+    const staleTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const sessionTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 });
+    const completedTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 3 });
+    const stale = createAttempt(staleTask.id);
     markDispatching(stale.id);
-    const session = createAttempt(task.id);
+    const session = createAttempt(sessionTask.id);
     markDispatching(session.id);
     markSessionCreated(session.id, { devinSessionId: 'not-stale' });
-    const completed = createAttempt(task.id);
+    const completed = createAttempt(completedTask.id);
     markDispatching(completed.id);
     completeAttempt(completed.id, 'failed');
 

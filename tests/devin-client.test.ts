@@ -30,6 +30,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinApiKey: 'test-key',
     devinOrgId: 'org_123',
     devinApiUrl: 'https://api.devin.ai/v3',
+    devinDispatchIntervalMs: 0,
+    devinMaxAcuPerSession: 5,
     ...overrides,
   };
 }
