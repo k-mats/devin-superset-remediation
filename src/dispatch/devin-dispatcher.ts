@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { DevinClient } from '../devin/client.js';
+import type { DevinClient, SessionResponse } from '../devin/client.js';
 import { GitHubApiError } from '../github/client.js';
 import type { GitHubClient, GitHubIssue } from '../github/client.js';
 import { getDb } from '../db/client.js';
@@ -20,7 +20,8 @@ export type DispatchDecision =
   | 'cancelled_ineligible'
   | 'failed_eligibility_check'
   | 'eligibility_check_deferred'
-  | 'session_create_failed';
+  | 'session_create_failed'
+  | 'session_persist_failed';
 
 export interface DispatchResult {
   pending: number;
@@ -133,28 +134,14 @@ export async function dispatchAttempt(
   }
 
   const title = `Remediate ${task.repoOwner}/${task.repoName}#${String(task.issueNumber)}: ${issue.title}`;
+  let session: SessionResponse;
   try {
-    const session = await opts.devin.createSession({
+    session = await opts.devin.createSession({
       prompt: buildSessionPrompt(task, issue, claimed),
       title: title.slice(0, MAX_TITLE_LENGTH),
       tags: buildSessionTags(task, claimed),
       max_acu_limit: opts.maxAcuPerSession,
     });
-    markSessionCreated(
-      attempt.id,
-      { devinSessionId: session.session_id, devinSessionUrl: session.url },
-      db
-    );
-    opts.logger.info(
-      {
-        attempt_id: attempt.id,
-        correlation_id: attempt.correlationId,
-        devin_session_id: session.session_id,
-        url: session.url,
-      },
-      'Created Devin session'
-    );
-    return 'dispatched';
   } catch (error: unknown) {
     // A session may have been created server-side; leave the attempt in
     // 'dispatching' for the Issue #20 reconciliation pass to recover.
@@ -164,6 +151,40 @@ export async function dispatchAttempt(
     );
     return 'session_create_failed';
   }
+
+  try {
+    markSessionCreated(
+      attempt.id,
+      { devinSessionId: session.session_id, devinSessionUrl: session.url },
+      db
+    );
+  } catch (error: unknown) {
+    // The session exists server-side; keep the id in the log so the Issue #20
+    // reconciliation pass can recover this dispatching attempt.
+    opts.logger.error(
+      {
+        err: error,
+        attempt_id: attempt.id,
+        correlation_id: attempt.correlationId,
+        devin_session_id: session.session_id,
+        url: session.url,
+        reason: 'session_persist_failed',
+      },
+      'Devin session created but could not be persisted; attempt left in dispatching for reconciliation'
+    );
+    return 'session_persist_failed';
+  }
+
+  opts.logger.info(
+    {
+      attempt_id: attempt.id,
+      correlation_id: attempt.correlationId,
+      devin_session_id: session.session_id,
+      url: session.url,
+    },
+    'Created Devin session'
+  );
+  return 'dispatched';
 }
 
 export async function runDispatchOnce(opts: DevinDispatcherOptions): Promise<DispatchResult> {

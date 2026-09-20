@@ -400,6 +400,45 @@ describe('Devin dispatcher', () => {
     expect(request?.title).toHaveLength(120);
   });
 
+  it('returns session_persist_failed and keeps the attempt dispatching when persisting fails', async () => {
+    await intakeIssueOnce();
+    const { attempt, task } = pendingAttempt();
+    const dispatchLogger = logger();
+    const devin = fakeDevin();
+
+    // Fail only the second UPDATE: the claim write succeeds, the
+    // session_created write in markSessionCreated throws.
+    const realDb = getDb();
+    const flakyDb = Object.create(realDb) as Db;
+    let updateCalls = 0;
+    flakyDb.update = ((table: Parameters<Db['update']>[0]) => {
+      updateCalls += 1;
+      if (updateCalls === 2) {
+        throw new Error('write failed');
+      }
+      return realDb.update(table);
+    }) as Db['update'];
+    const opts = dispatchOptions({ devin, logger: dispatchLogger }, flakyDb);
+
+    const decision = await dispatchAttempt(attempt, task, opts);
+
+    expect(decision).toBe('session_persist_failed');
+    expect(devin.createSession).toHaveBeenCalledTimes(1);
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'dispatching',
+      devinSessionId: null,
+    });
+    expect(dispatchLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attempt_id: attempt.id,
+        devin_session_id: 'sess-1',
+        url: 'https://app.devin.ai/sessions/sess-1',
+        reason: 'session_persist_failed',
+      }),
+      'Devin session created but could not be persisted; attempt left in dispatching for reconciliation'
+    );
+  });
+
   it('counts an unexpected per-attempt error under failed and continues', async () => {
     await intakeIssueOnce();
     const { attempt } = pendingAttempt();
@@ -408,7 +447,7 @@ describe('Devin dispatcher', () => {
     const opts = dispatchOptions({ devin, logger: dispatchLogger });
     devin.createSession.mockImplementation(() => {
       // Concurrently completing the attempt makes markSessionCreated throw,
-      // exercising the catch-all error path in runDispatchOnce.
+      // exercising the session_persist_failed path counted under failed.
       getDb().update(attempts).set({ state: 'completed', outcome: 'failed' }).run();
       return Promise.resolve({
         session_id: 'sess-1',
@@ -425,8 +464,12 @@ describe('Devin dispatcher', () => {
 
     expect(result).toMatchObject({ pending: 1, dispatched: 0, failed: 1 });
     expect(dispatchLogger.error).toHaveBeenCalledWith(
-      expect.objectContaining({ attempt_id: attempt.id }),
-      'Devin session creation failed; attempt left in dispatching state'
+      expect.objectContaining({
+        attempt_id: attempt.id,
+        devin_session_id: 'sess-1',
+        reason: 'session_persist_failed',
+      }),
+      'Devin session created but could not be persisted; attempt left in dispatching for reconciliation'
     );
   });
 
