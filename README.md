@@ -29,6 +29,30 @@ This project implements an automated system that:
 
 - Node.js 24.21.0
 - pnpm 12.4.2
+- For independent verification of remediations (Issue #13): `git`, `uv`
+  (`pip install uv`), and Python 3.12. The `superset` repository setup adapter
+  additionally builds some wheels from source and needs:
+  `apt-get install pkg-config default-libmysqlclient-dev libldap2-dev libsasl2-dev libffi-dev libssl-dev gcc g++ make`
+
+### Verification specs
+
+Issues can carry a human-approved verification command in a
+`## Verification` (or `#`/`###`) section containing a fenced code block tagged
+`bash` (run via `bash -euo pipefail`) or `sh`/`shell`/untagged (run via
+`sh -eu`):
+
+    ## Verification
+
+    ```bash
+    source .venv/bin/activate && pytest tests/unit_tests/ -k my_test
+    ```
+
+The block's content is hashed (sha256) and pinned per attempt; only the
+approved spec ever executes. If the section is later edited, the new spec
+becomes `pending_approval` until an operator runs
+`pnpm verification:approve --attempt <id> --spec-hash <sha256>`
+(inspect with `pnpm verification:show --attempt <id>`, propose a spec with
+`pnpm verification:propose --attempt <id> --command "<cmd>"`).
 
 ### Installation
 

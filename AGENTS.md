@@ -25,6 +25,14 @@ devin-superset-remediation/
 │   │   └── verify-pull-request.ts # Agent PR verification (Issue #11)
 │   ├── tracking/
 │   │   └── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
+│   ├── verification/         # Independent remediation verification (Issue #13)
+│   │   ├── spec.ts           # Issue `## Verification` section parser and spec hashing
+│   │   ├── approval.ts       # Candidate vs approved spec status derivation
+│   │   ├── runner.ts         # Sandboxed shell command runner (env allowlist, timeouts)
+│   │   ├── git-workspace.ts  # Per-repo workspace clone and exact-SHA checkout
+│   │   ├── repo-setup.ts     # Repository setup adapters (superset uv venv, noop)
+│   │   ├── github-checks.ts  # Check-run/combined-status evaluation
+│   │   └── verify-remediation.ts # Verification orchestration per poll
 │   └── routes/               # Fastify routes
 │       └── health.ts         # Health check endpoint
 ├── scripts/
@@ -34,6 +42,11 @@ devin-superset-remediation/
 │   ├── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)
 │   ├── structured-output-demo.ts       # Single structured output collection demo (Issue #10)
 │   └── tracking-demo.ts       # Single session and PR tracking pass demo (Issue #11)
+│   ├── verification-demo.ts   # Single independent verification pass demo (Issue #13)
+│   ├── adopt-session-demo.ts  # Attach an existing Devin session to a pending attempt
+│   ├── verification-show.ts   # Inspect an attempt's verification spec and history
+│   ├── verification-approve.ts# Approve a pending verification spec by sha256
+│   └── verification-propose.ts# Propose a verification spec as the operator
 ├── docs/
 │   └── evidence/             # Verification evidence artifacts
 ├── tests/
