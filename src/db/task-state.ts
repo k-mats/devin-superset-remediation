@@ -289,8 +289,8 @@ export function recordPullRequest(
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
   if (
-    (attempt.prUrl !== null && attempt.prUrl !== input.prUrl) ||
-    (attempt.prNumber !== null && attempt.prNumber !== input.prNumber)
+    (attempt.prNumber !== null && attempt.prNumber !== input.prNumber) ||
+    (attempt.prNumber === null && attempt.prUrl !== null && attempt.prUrl !== input.prUrl)
   ) {
     throw new PullRequestMismatchError(attemptId);
   }

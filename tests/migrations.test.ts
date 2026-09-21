@@ -90,6 +90,16 @@ describe('migration 0005 against a pre-existing database', () => {
         'sess-canonical',
         'https://github.com/acme/widget/pull/42'
       );
+      const trailingSlashPullRequestAttemptId = insertLegacyPullRequestAttempt(
+        4,
+        'sess-trailing-slash',
+        'https://github.com/acme/widget/pull/42/'
+      );
+      const malformedPullRequestAttemptId = insertLegacyPullRequestAttempt(
+        5,
+        'sess-malformed',
+        'https://github.com/acme/widget/pull/42abc'
+      );
       const unparseablePullRequestAttemptId = insertLegacyPullRequestAttempt(
         3,
         'sess-unparseable',
@@ -148,6 +158,22 @@ describe('migration 0005 against a pre-existing database', () => {
       ).toEqual({
         pr_url: 'https://github.com/acme/widget/pull/42',
         pr_number: 42,
+      });
+      expect(
+        sqlite
+          .prepare('SELECT pr_url, pr_number FROM attempts WHERE id = ?')
+          .get(trailingSlashPullRequestAttemptId)
+      ).toEqual({
+        pr_url: 'https://github.com/acme/widget/pull/42/',
+        pr_number: 42,
+      });
+      expect(
+        sqlite
+          .prepare('SELECT pr_url, pr_number FROM attempts WHERE id = ?')
+          .get(malformedPullRequestAttemptId)
+      ).toEqual({
+        pr_url: 'https://github.com/acme/widget/pull/42abc',
+        pr_number: null,
       });
       expect(
         sqlite

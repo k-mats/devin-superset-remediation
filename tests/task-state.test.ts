@@ -25,6 +25,7 @@ import {
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
+  PullRequestMismatchError,
   recordStructuredOutput,
   recordPullRequest,
   upsertTask,
@@ -119,6 +120,52 @@ describe('task state repository', () => {
       })
     ).toEqual(beforeTask);
     expect(listAttempts(task.id)).toEqual(beforeAttempts);
+  });
+
+  it('compares pull request identity by number while guarding URL-only rows', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 102 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'canonicalize-session' });
+    markRunning(attempt.id);
+    const rawDb = getRawDb();
+    if (!rawDb) throw new Error('Raw database was not initialized');
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ? WHERE id = ?')
+      .run('https://github.com/owner/repo/pull/42/', 42, attempt.id);
+
+    const refreshed = recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/42',
+      prNumber: 42,
+      prState: 'open',
+      prHeadSha: 'abc',
+    });
+    expect(refreshed.prUrl).toBe('https://github.com/owner/repo/pull/42');
+    expect(() =>
+      recordPullRequest(attempt.id, {
+        prUrl: 'https://github.com/owner/repo/pull/43',
+        prNumber: 43,
+        prState: 'open',
+        prHeadSha: 'def',
+      })
+    ).toThrow(PullRequestMismatchError);
+    completeAttempt(attempt.id, 'succeeded');
+
+    const urlOnly = createAttempt(task.id);
+    markDispatching(urlOnly.id);
+    markSessionCreated(urlOnly.id, { devinSessionId: 'url-only-session' });
+    completeAttempt(urlOnly.id, 'succeeded');
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = NULL WHERE id = ?')
+      .run('https://github.com/owner/repo/pull/42/', urlOnly.id);
+    expect(() =>
+      recordPullRequest(urlOnly.id, {
+        prUrl: 'https://github.com/owner/repo/pull/42',
+        prNumber: 42,
+        prState: 'open',
+        prHeadSha: 'ghi',
+      })
+    ).toThrow(PullRequestMismatchError);
   });
 
   it('numbers and lists multiple attempts in order', () => {
