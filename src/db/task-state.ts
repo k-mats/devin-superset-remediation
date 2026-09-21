@@ -652,6 +652,10 @@ export function getTaskByIdentity(
   return db.select().from(tasks).where(identityWhere(input)).get();
 }
 
+export function getTaskById(taskId: number, db: DbExecutor = getDb()): Task | undefined {
+  return db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+}
+
 export function getAttempt(attemptId: number, db: DbExecutor = getDb()): Attempt | undefined {
   return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
 }

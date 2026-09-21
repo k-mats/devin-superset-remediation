@@ -1,12 +1,16 @@
 import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
-import { config } from '../src/config.js';
 import { eq } from 'drizzle-orm';
+import { config } from '../src/config.js';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { tasks } from '../src/db/schema.js';
-import { createGitHubClientFromConfig, derivePrState } from '../src/github/client.js';
-import { getAttempt, listVerifications, recordPullRequest } from '../src/db/task-state.js';
+import { createGitHubClientFromConfig } from '../src/github/client.js';
+import { getAttempt, listVerifications } from '../src/db/task-state.js';
+import {
+  refreshTrackedPullRequest,
+  verificationOptionsFromConfig,
+} from '../src/verification/rerun.js';
 import { verifyRemediationOnce } from '../src/verification/verify-remediation.js';
 
 const logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'> = {
@@ -47,31 +51,13 @@ async function main(): Promise<number> {
       return 1;
     }
     if (attempt.prNumber !== null) {
-      const pr = await github.getPullRequest(
-        resolvedTask.repoOwner,
-        resolvedTask.repoName,
-        attempt.prNumber
-      );
-      attempt = recordPullRequest(
-        attempt.id,
-        {
-          prUrl: pr.html_url,
-          prNumber: pr.number,
-          prState: derivePrState(pr),
-          prHeadSha: pr.head.sha,
-        },
-        db
-      );
+      attempt = await refreshTrackedPullRequest(attempt, resolvedTask, github, db);
     }
     const decision = await verifyRemediationOnce(attempt, resolvedTask, {
       github,
       logger,
       db,
-      workspaceRoot: config.verificationWorkspaceRoot,
-      commandTimeoutMs: config.verificationCommandTimeoutMs,
-      setupTimeoutMs: config.verificationSetupTimeoutMs,
-      checkoutTimeoutMs: config.verificationCheckoutTimeoutMs,
-      maxOutputBytes: config.verificationMaxOutputBytes,
+      ...verificationOptionsFromConfig(config),
       rerun: values.rerun,
     });
     console.log(`Decision: ${decision}`);

@@ -91,7 +91,20 @@ function renderApproval(attempt: LedgerAttemptEvidence): string {
     approval.approvedSha256 === null
       ? ''
       : ` · spec <code>${escapeHtml(approval.approvedSha256.slice(0, 12))}</code> · by ${escapeHtml(approval.approvedBy ?? '—')} · ${escapeHtml(formatTime(approval.approvedAt))}`;
-  return `${escapeHtml(approval.status)}${spec}`;
+  const verificationContext =
+    attempt.state === 'VERIFYING' ||
+    attempt.state === 'VERIFIED' ||
+    attempt.state === 'VERIFICATION_FAILED' ||
+    approval.status !== 'no_candidate' ||
+    approval.approvedSha256 !== null ||
+    attempt.verification.command !== null ||
+    attempt.verification.githubChecks !== null ||
+    attempt.verification.prior.length > 0 ||
+    attempt.verification.stale.length > 0;
+  const link = verificationContext
+    ? ` · <a href="/operator/attempts/${String(attempt.attemptId)}/verification">Verification</a>`
+    : '';
+  return `${escapeHtml(approval.status)}${spec}${link}`;
 }
 
 function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
