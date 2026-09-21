@@ -55,6 +55,9 @@ operator runs `pnpm verification:approve --attempt <id> --spec-hash <sha256>`,
 and only the approved spec ever executes
 (inspect with `pnpm verification:show --attempt <id>`, propose a spec with
 `pnpm verification:propose --attempt <id> --command "<cmd>"`).
+Removing or breaking the `## Verification` section clears an issue-derived
+candidate; operator candidates are never cleared or overwritten by issue
+edits.
 
 ### Installation
 

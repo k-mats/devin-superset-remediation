@@ -205,6 +205,46 @@ describe('verifyRemediationOnce', () => {
     expect(updated.verificationCandidateSha256).toBe(operatorSpec.verificationCandidateSha256);
   });
 
+  it('clears an issue-sourced candidate when the verification section is removed', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
+    const opts = options();
+    (opts.github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...issueWithSpec('echo ok'),
+      body: 'Desc without a verification section',
+    });
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_unverified');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+    const updated = freshAttempt(attempt.id);
+    expect(updated.state).toBe('verifying');
+    expect(updated.verificationCandidateSource).toBeNull();
+    expect(updated.verificationCandidateSha256).toBeNull();
+    expect(approvalStatus(updated)).toBe('no_candidate');
+    const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
+    expect(command).toMatchObject({
+      status: 'unverified',
+      reason: 'no_approved_verification_spec',
+    });
+  });
+
+  it('leaves an operator candidate untouched when the issue section is removed', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const operatorSpec = setVerificationCandidate(attempt.id, spec('echo op'), 'operator');
+    approveVerificationSpec(attempt.id, hashVerificationSpec('bash', 'echo op'), 'operator');
+    const opts = options();
+    (opts.github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...issueWithSpec('echo ok'),
+      body: 'Desc without a verification section',
+    });
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    expect(opts.runCommand).toHaveBeenCalledTimes(1);
+    const updated = freshAttempt(attempt.id);
+    expect(updated.verificationCandidateSource).toBe('operator');
+    expect(updated.verificationCandidateSha256).toBe(operatorSpec.verificationCandidateSha256);
+  });
+
   it('runs an approved spec and completes the attempt when the head is unchanged', async () => {
     const { task, attempt } = verifyingAttempt();
     approveIssueSpec(attempt.id, 'echo ok');

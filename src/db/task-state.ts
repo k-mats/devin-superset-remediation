@@ -474,6 +474,31 @@ export function setVerificationCandidate(
   return requireAttempt(attemptId, db);
 }
 
+export function clearVerificationCandidate(
+  attemptId: number,
+  opts: { onlySource?: VerificationCandidateSource } = {},
+  db: DbExecutor = getDb()
+): Attempt {
+  const timestamp = Date.now();
+  db.update(attempts)
+    .set({
+      verificationCandidateShell: null,
+      verificationCandidateScript: null,
+      verificationCandidateSha256: null,
+      verificationCandidateSource: null,
+      verificationCandidateUpdatedAt: null,
+      updatedAt: timestamp,
+    })
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        opts.onlySource ? eq(attempts.verificationCandidateSource, opts.onlySource) : undefined
+      )
+    )
+    .run();
+  return requireAttempt(attemptId, db);
+}
+
 export function approveVerificationSpec(
   attemptId: number,
   specSha256: string,

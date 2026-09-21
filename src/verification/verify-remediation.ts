@@ -4,6 +4,7 @@ import { derivePrState, type GitHubClient } from '../github/client.js';
 import type { Attempt, Task, Verification } from '../db/schema.js';
 import { getDb } from '../db/client.js';
 import {
+  clearVerificationCandidate,
   completeVerifiedAttempt,
   findLatestVerification,
   getAttempt,
@@ -162,19 +163,29 @@ export async function verifyRemediationOnce(
   }
 
   const issueSpec = parseVerificationSpec(issueBody);
-  if (issueSpec.ok) {
-    const current = getAttempt(attempt.id, db) ?? attempt;
-    if (
-      current.verificationCandidateSource !== 'operator' &&
-      current.verificationCandidateSha256 !== issueSpec.spec.sha256
-    ) {
-      setVerificationCandidate(attempt.id, issueSpec.spec, 'issue_verification_section', db);
+  attempt = db.transaction((tx) => {
+    let fresh = getAttempt(attempt.id, tx) ?? attempt;
+    if (issueSpec.ok) {
+      if (
+        fresh.verificationCandidateSource !== 'operator' &&
+        fresh.verificationCandidateSha256 !== issueSpec.spec.sha256
+      ) {
+        fresh = setVerificationCandidate(
+          attempt.id,
+          issueSpec.spec,
+          'issue_verification_section',
+          tx
+        );
+      }
+      return fresh;
     }
-    attempt = getAttempt(attempt.id, db) ?? current;
-  } else {
-    attempt = getAttempt(attempt.id, db) ?? attempt;
-    if (attempt.verificationCandidateSha256 === null) {
-      const commands = (attempt.agentTestsRun ?? [])
+    fresh = clearVerificationCandidate(
+      attempt.id,
+      { onlySource: 'issue_verification_section' },
+      tx
+    );
+    if (fresh.verificationCandidateSha256 === null) {
+      const commands = (fresh.agentTestsRun ?? [])
         .map((entry) => entry.command)
         .filter((command) => command.trim() !== '');
       if (commands.length > 0) {
@@ -184,10 +195,11 @@ export async function verifyRemediationOnce(
           script,
           sha256: hashVerificationSpec('sh', script),
         };
-        attempt = setVerificationCandidate(attempt.id, spec, 'agent_tests_run', db);
+        fresh = setVerificationCandidate(attempt.id, spec, 'agent_tests_run', tx);
       }
     }
-  }
+    return fresh;
+  });
 
   const status = approvalStatus(attempt);
   if (status === 'no_candidate') {

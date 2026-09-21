@@ -12,6 +12,7 @@ import {
   ActiveAttemptExistsError,
   approveVerificationSpec,
   claimAttemptForDispatch,
+  clearVerificationCandidate,
   completeAttempt,
   completeVerifiedAttempt,
   createAttempt,
@@ -996,6 +997,25 @@ describe('verification candidate and approval state', () => {
     expect(() => approveVerificationSpec(attempt.id, bogusSha, 'operator')).toThrow(
       VerificationSpecMismatchError
     );
+  });
+
+  it('clearVerificationCandidate with onlySource mismatch is a no-op', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const withCandidate = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo op' },
+      'operator'
+    );
+
+    const unchanged = clearVerificationCandidate(attempt.id, {
+      onlySource: 'issue_verification_section',
+    });
+    expect(unchanged).toEqual(withCandidate);
+
+    const cleared = clearVerificationCandidate(attempt.id, { onlySource: 'operator' });
+    expect(cleared.verificationCandidateSha256).toBeNull();
+    expect(cleared.verificationCandidateSource).toBeNull();
   });
 });
 

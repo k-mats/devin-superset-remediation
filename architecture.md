@@ -87,7 +87,10 @@ agent-reported commands are never executed without an operator approval via
 Every source — including a `## Verification` section already present at
 dispatch time — produces a _candidate_ only; the issue-defined spec is
 surfaced as the preferred candidate but is never approved automatically.
-Operator candidates are never overwritten by later issue edits. When the
+Operator candidates are never overwritten by later issue edits. Removing or
+breaking the `## Verification` section clears an issue-derived candidate
+(back to `no_candidate`); operator candidates are never cleared by issue
+edits. When the
 candidate's sha256 matches the approved sha256 the spec is approved; a changed
 candidate automatically falls back to `pending_approval` because the hashes
 differ. Applying the `devin-ready` label is _not_ command approval — it only
