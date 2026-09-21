@@ -200,7 +200,10 @@ session `5957ce490e56465b930e0349ace6db68` (no new Devin session created).
 The verification workspace lives on the `orchestrator-data` volume under
 `/app/data/verification/k-mats__superset`.
 
-Two driver scripts were used: `evidence-seed.mjs` (mirrors
+Two driver scripts were used, committed verbatim as
+[`issue-17-docker/evidence-seed.mjs`](issue-17-docker/evidence-seed.mjs) and
+[`issue-17-docker/evidence-verify.mjs`](issue-17-docker/evidence-verify.mjs):
+`evidence-seed.mjs` (mirrors
 `scripts/adopt-session-demo.ts` + intake/tracking writes over compiled
 `dist/` modules: seeds task+attempt, marks dispatching/session_created,
 records PR #14, marks `verifying`) and `evidence-verify.mjs` (mirrors
