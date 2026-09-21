@@ -29,11 +29,11 @@ Tests run:
 ```text
 Targeted operator/rerun/report/startup tests:
 Test Files  4 passed (4)
-Tests       29 passed (29)
+Tests       34 passed (34)
 
 Full Vitest suite:
 Test Files  30 passed (30)
-Tests       433 passed (433)
+Tests       436 passed (436)
 ```
 
 `pnpm check`:
@@ -42,7 +42,7 @@ Tests       433 passed (433)
 format:check passed
 lint passed
 type-check passed
-test passed — 30 files, 433 tests
+test passed — 30 files, 436 tests
 build passed
 ```
 

@@ -3,6 +3,7 @@ import type {
   FastifyInstance,
   FastifyPluginCallback,
   FastifyReply,
+  FastifyRequest,
 } from 'fastify';
 import { z } from 'zod';
 import { getDb } from '../db/client.js';
@@ -55,6 +56,26 @@ const approvalSchema = z.object({ spec_sha256: z.string().regex(/^[0-9a-f]{64}$/
 
 function bodyObject(body: unknown): Record<string, unknown> {
   return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+}
+
+function rejectCrossSite(request: FastifyRequest, reply: FastifyReply): boolean {
+  if (request.headers['sec-fetch-site'] === 'cross-site') {
+    reply.code(403).send({ error: 'cross_site_request' });
+    return true;
+  }
+  const origin = request.headers.origin;
+  if (origin !== undefined) {
+    try {
+      if (typeof origin !== 'string' || new URL(origin).host !== request.headers.host) {
+        reply.code(403).send({ error: 'cross_site_request' });
+        return true;
+      }
+    } catch {
+      reply.code(403).send({ error: 'cross_site_request' });
+      return true;
+    }
+  }
+  return false;
 }
 
 function loadView(
@@ -169,6 +190,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   });
 
   fastify.post('/operator/attempts/:attemptId/verification/propose', (request, reply) => {
+    if (rejectCrossSite(request, reply)) return;
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
     const db = dbForRequest();
@@ -212,6 +234,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   });
 
   fastify.post('/operator/attempts/:attemptId/verification/approve', (request, reply) => {
+    if (rejectCrossSite(request, reply)) return;
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
     const db = dbForRequest();
@@ -249,6 +272,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   });
 
   fastify.post('/operator/attempts/:attemptId/verification/rerun', async (request, reply) => {
+    if (rejectCrossSite(request, reply)) return;
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
     const db = dbForRequest();

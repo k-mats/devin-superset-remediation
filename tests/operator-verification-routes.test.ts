@@ -183,6 +183,55 @@ describe('operator verification routes', () => {
     expect(updated?.verificationCandidateSha256).toBe(hashVerificationSpec('sh', script));
   });
 
+  it('rejects a cross-site Origin without changing the candidate', async () => {
+    const { attempt } = verifyingAttempt();
+    const existingScript = 'echo existing';
+    const existingSha = candidate(attempt.id, existingScript);
+    const response = await server.inject({
+      method: 'POST',
+      url: `/operator/attempts/${String(attempt.id)}/verification/propose`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: 'https://evil.example',
+      },
+      payload: new URLSearchParams({ shell: 'sh', script: 'echo attack' }).toString(),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'cross_site_request' });
+    expect(getAttempt(attempt.id)?.verificationCandidateSha256).toBe(existingSha);
+    expect(getAttempt(attempt.id)?.verificationCandidateScript).toBe(existingScript);
+  });
+
+  it('rejects a cross-site Sec-Fetch-Site request', async () => {
+    const { attempt } = verifyingAttempt();
+    const response = await server.inject({
+      method: 'POST',
+      url: `/operator/attempts/${String(attempt.id)}/verification/propose`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'sec-fetch-site': 'cross-site',
+      },
+      payload: new URLSearchParams({ shell: 'sh', script: 'echo attack' }).toString(),
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'cross_site_request' });
+    expect(getAttempt(attempt.id)?.verificationCandidateSha256).toBeNull();
+  });
+
+  it('allows a same-origin proposal', async () => {
+    const { attempt } = verifyingAttempt();
+    const response = await server.inject({
+      method: 'POST',
+      url: `/operator/attempts/${String(attempt.id)}/verification/propose`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: 'https://localhost:80',
+      },
+      payload: new URLSearchParams({ shell: 'sh', script: 'echo same origin' }).toString(),
+    });
+    expect(response.statusCode).toBe(303);
+  });
+
   it('renders no-candidate, pending, and approved review states', async () => {
     const { attempt } = verifyingAttempt();
     const empty = await server.inject({

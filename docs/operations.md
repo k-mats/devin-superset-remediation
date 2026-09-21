@@ -113,6 +113,8 @@ tracker verification and browser reruns share the lock, and a waiter re-reads
 attempt state after acquiring it. The remaining limitation is cross-process:
 `demo:verification` and CLI runs in a separate process against a live service
 are not covered by the in-process lock.
+Mutating operator forms reject cross-site requests (Origin/Sec-Fetch-Site check);
+there is still no authentication.
 
 ### Trust boundary of in-container verification
 
