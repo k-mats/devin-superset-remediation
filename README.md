@@ -124,6 +124,21 @@ DATABASE_PATH=./database.db
 LOG_LEVEL=info
 ```
 
+## Observability / reporting (Issue #15)
+
+The service exposes `GET /api/report` for a JSON report and `GET /dashboard`
+for a lightweight server-rendered HTML dashboard. Both accept an optional
+comma-separated `run_kind` query parameter (`real`, `demo`, `mock`, or
+`unknown`); the default summary filter is `real`. Pre-migration attempts are
+assigned `unknown`. The report summary and dashboard cards count **tasks**,
+while the attempts-created throughput measure counts **attempts**. Success is
+defined strictly as the normalized `VERIFIED` state; a PR URL or open PR is
+not success.
+
+These endpoints are UNAUTHENTICATED and are intended only for local or trusted
+internal environments. Responses never contain secrets, verification scripts,
+raw structured output, or agent diagnoses.
+
 ### GitHub intake (Issue #7)
 
 The service periodically polls the configured Superset fork for open issues

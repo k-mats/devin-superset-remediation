@@ -65,7 +65,9 @@ with a NULL session ID is the reconciliation signal after a crash.
 tag. A partial unique index on `attempts.task_id` restricts each task to at
 most one active (`pending`, `dispatching`, `session_created`, `running`, or
 `verifying`) attempt, and `outcome_reason` records why an attempt was
-completed.
+completed. Each attempt also has a `run_kind` (`real`, `demo`, `mock`, or
+`unknown`) so reporting can separate production work from demonstrations and
+tests; rows that predate the column are `unknown`.
 
 Session state (`devin_session_status`, status detail, usage, and timestamps),
 the agent's structured outcome (`agent_outcome` and agent-reported PR URL), the
@@ -93,6 +95,14 @@ verification rows) are carried alongside the normalized value in
 `projection.raw` so the projection never replaces them. The session tracker
 emits the projection as a structured log line at the end of each tracking
 pass, and `pnpm verification:show` prints it next to the raw facts.
+
+### Reporting
+
+Issue #15 derives the JSON report and the HTML dashboard from the normalized
+task-state projection, with the current attempt selected as the active attempt
+when one exists. Reports default to real runs and can include other
+`run_kind` values explicitly; they distinguish task counts from attempt
+throughput and treat only `VERIFIED` as successful.
 
 ### Verification
 
