@@ -452,9 +452,13 @@ export function setVerificationCandidate(
 ): Attempt {
   const sha256 = hashVerificationSpec(spec.shell, spec.script);
   const attempt = requireAttempt(attemptId, db);
-  if (attempt.verificationCandidateSha256 === sha256) {
+  if (
+    attempt.verificationCandidateSha256 === sha256 &&
+    (source !== 'operator' || attempt.verificationCandidateSource === 'operator')
+  ) {
     return attempt;
   }
+  // An equal-hash operator proposal falls through to promote the candidate's source.
   const timestamp = Date.now();
   const result = db
     .update(attempts)

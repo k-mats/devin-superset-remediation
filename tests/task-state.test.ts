@@ -999,6 +999,24 @@ describe('verification candidate and approval state', () => {
     );
   });
 
+  it('treats an equal-hash non-operator proposal as a no-op over an issue candidate', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const issueCandidate = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo ok' },
+      'issue_verification_section'
+    );
+
+    const unchanged = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo ok' },
+      'agent_tests_run'
+    );
+    expect(unchanged).toEqual(issueCandidate);
+    expect(unchanged.verificationCandidateSource).toBe('issue_verification_section');
+  });
+
   it('clearVerificationCandidate with onlySource mismatch is a no-op', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const attempt = createAttempt(task.id);

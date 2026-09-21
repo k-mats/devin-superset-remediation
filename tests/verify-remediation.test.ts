@@ -228,6 +228,24 @@ describe('verifyRemediationOnce', () => {
     });
   });
 
+  it('promotes an equal-hash issue candidate to operator on explicit proposal', async () => {
+    const { task, attempt } = verifyingAttempt();
+    setVerificationCandidate(attempt.id, spec('echo ok'), 'issue_verification_section');
+    const promoted = setVerificationCandidate(attempt.id, spec('echo ok'), 'operator');
+    expect(promoted.verificationCandidateSource).toBe('operator');
+    approveVerificationSpec(attempt.id, hashVerificationSpec('bash', 'echo ok'), 'operator');
+    const opts = options();
+    (opts.github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...issueWithSpec('echo ok'),
+      body: 'Desc without a verification section',
+    });
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    expect(opts.runCommand).toHaveBeenCalledTimes(1);
+    const updated = freshAttempt(attempt.id);
+    expect(updated.verificationCandidateSource).toBe('operator');
+  });
+
   it('leaves an operator candidate untouched when the issue section is removed', async () => {
     const { task, attempt } = verifyingAttempt();
     const operatorSpec = setVerificationCandidate(attempt.id, spec('echo op'), 'operator');
