@@ -41,9 +41,13 @@ cp .env.example .env
 docker compose up --build
 ```
 
-In another terminal, once the `app` container reports healthy:
+`docker compose up` stays attached and streams the service log (Ctrl-C stops
+the service); keep it running. In a second terminal in the same directory,
+wait until `docker compose ps` shows the `app` service as `healthy`
+(roughly 1–2 minutes on first build, ~10 s afterwards), then:
 
 ```bash
+docker compose ps                      # STATUS ... (healthy)
 curl http://localhost:3000/health      # {"status":"ok",...}
 curl http://localhost:3000/ready       # {"status":"ready","database":"connected",...}
 curl http://localhost:3000/api/report  # JSON observability report (empty database on a fresh start)
@@ -211,6 +215,8 @@ workflow. Details and options are in
 | Logs                                     | `docker compose logs -f app` — structured JSON, one projection line per tracking pass                                                                                    |
 
 Attempt ids are the numeric `attempt.id` shown in `/api/report`. The
+`docker compose exec …` commands must be run from the repository directory
+while the service is up. The
 `pnpm verification:*` commands are the same CLIs run from a host checkout.
 The report endpoints are **unauthenticated** and intended for local or
 trusted internal use only; they never contain secrets, verification scripts,
