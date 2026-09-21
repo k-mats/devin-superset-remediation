@@ -58,7 +58,8 @@ devin-superset-remediation/
 │   ├── verification-approve.ts# Wrapper → src/cli/verification-approve.ts
 │   └── verification-propose.ts# Wrapper → src/cli/verification-propose.ts
 ├── docs/
-│   └── evidence/             # Verification evidence artifacts (incl. issue-17-docker.md)
+│   ├── operations.md         # Operations guide: Docker, host prerequisites, verification specs, stage details (Issue #18)
+│   └── evidence/             # Verification evidence artifacts (incl. issue-17-docker.md, issue-18-readme-walkthrough.md)
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
@@ -129,7 +130,7 @@ devin-superset-remediation/
 
 ### Docker (Issue #17)
 
-- `docker compose up --build` - Build and run the full service (see README "Running with Docker")
+- `docker compose up --build` - Build and run the full service (see docs/operations.md "Docker")
 
 ## Safety Rules
 
