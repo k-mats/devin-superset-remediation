@@ -4,10 +4,17 @@ import { eq } from 'drizzle-orm';
 import { buildServer } from '../src/index.js';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
-import { createAttempt, upsertTask } from '../src/db/task-state.js';
+import {
+  createAttempt,
+  recordVerification,
+  setVerificationCandidate,
+  upsertTask,
+} from '../src/db/task-state.js';
+import { hashVerificationSpec } from '../src/verification/spec.js';
 
 describe('report routes', () => {
   let server: Awaited<ReturnType<typeof buildServer>>;
+  let attemptId: number;
 
   beforeAll(async () => {
     runMigrations();
@@ -25,12 +32,24 @@ describe('report routes', () => {
       issueNumber: 15,
       title: '<script>alert(1)</script>',
     });
-    createAttempt(task.id);
+    const attempt = createAttempt(task.id);
+    attemptId = attempt.id;
     getDb()
       .update(attempts)
       .set({ prUrl: 'javascript:alert(1)', prHeadSha: '123456789012abcdef' })
       .where(eq(attempts.taskId, task.id))
       .run();
+    setVerificationCandidate(attempt.id, { shell: 'sh', script: 'SECRET_SCRIPT_BODY' }, 'operator');
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: '123456789012abcdef',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: 'SECRET_SCRIPT_BODY',
+      specSha256: hashVerificationSpec('sh', 'SECRET_SCRIPT_BODY'),
+      evidenceSummary: 'RAW_OUTPUT_SENTINEL',
+    });
   });
 
   afterAll(async () => {
@@ -48,6 +67,8 @@ describe('report routes', () => {
     });
     const reportPayload = JSON.parse(response.payload) as { ledger: unknown[] };
     expect(reportPayload.ledger).toHaveLength(1);
+    expect(response.payload).not.toContain('SECRET_SCRIPT_BODY');
+    expect(response.payload).not.toContain('RAW_OUTPUT_SENTINEL');
   });
 
   it('ignores the removed run-kind query parameter', async () => {
@@ -71,6 +92,17 @@ describe('report routes', () => {
     expect(response.payload).toContain('GitHub Checks');
     expect(response.payload).not.toContain('SECRET_SCRIPT_BODY');
     expect(response.payload).not.toContain('RAW_OUTPUT_SENTINEL');
+    expect(response.payload).toContain(`/operator/attempts/${String(attemptId)}/verification`);
     expect(response.payload).not.toContain('href="javascript:');
+  });
+
+  it('renders scripts only on the dedicated operator page', async () => {
+    const response = await server.inject({
+      method: 'GET',
+      url: `/operator/attempts/${String(attemptId)}/verification`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.payload).toContain('SECRET_SCRIPT_BODY');
+    expect(response.payload).not.toContain('RAW_OUTPUT_SENTINEL');
   });
 });

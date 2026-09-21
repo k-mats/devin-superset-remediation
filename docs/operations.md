@@ -46,6 +46,11 @@ For local development outside Docker, `.env.example` sets
 `NODE_ENV=development`, `PORT=3000`, `DATABASE_PATH=./database.db`,
 `LOG_LEVEL=info`.
 
+The default Compose configuration publishes only on loopback because the
+operator routes can execute approved shell scripts; deployments that
+intentionally expose webhook/operator traffic should use their own
+network/reverse-proxy configuration.
+
 ### Persistence
 
 The SQLite database lives on the named volume `orchestrator-data` mounted at
@@ -73,7 +78,7 @@ for local development, so it must be overridden explicitly here):
 
 ```bash
 docker build -t devin-superset-remediation .
-docker run --rm -p 3000:3000 --env-file .env \
+docker run --rm -p 127.0.0.1:3000:3000 --env-file .env \
   -e NODE_ENV=production -e HOST=0.0.0.0 \
   -e DATABASE_PATH=/app/data/orchestrator.db \
   -e VERIFICATION_WORKSPACE_ROOT=/app/data/verification \
@@ -90,6 +95,28 @@ docker compose exec app node dist/cli/verification-propose.js --attempt <id> --c
 docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>
 docker compose exec app node dist/cli/verification-show.js --attempt <id>
 ```
+
+### Operator verification UI
+
+The same review, proposal, approval, and explicit rerun workflow is available
+at `/operator/attempts/<id>/verification`. The page is intentionally separate
+from the reporting dashboard: verification scripts are visible only on this
+operator surface, while raw command output remains excluded from reports.
+Reruns are synchronous and warn before running checkout, repository setup, and
+the approved shell script; they may take many minutes. A rerun returns `503
+verification_disabled` when `VERIFICATION_ENABLED=false`, or `503
+github_unavailable` when `GITHUB_TOKEN` is not configured. Review, propose, and
+approve remain available in both cases.
+
+Verification execution is serialized in-process per repository workspace:
+tracker verification and browser reruns share the lock, and a waiter re-reads
+attempt state after acquiring it. The remaining limitation is cross-process:
+`demo:verification` and CLI runs in a separate process against a live service
+are not covered by the in-process lock.
+Mutating operator forms reject cross-site requests (Origin/Sec-Fetch-Site check);
+there is still no authentication. Behind a proxy that rewrites Host, modern
+browsers' Sec-Fetch-Site header keeps forms working; legacy clients without it
+must present an Origin matching Host.
 
 ### Trust boundary of in-container verification
 

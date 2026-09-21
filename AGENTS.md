@@ -30,7 +30,8 @@ devin-superset-remediation/
 │   │   └── normalized-task-state.ts # Derived normalized task-state projection (Issue #14)
 │   ├── reporting/
 │   │   ├── report-model.ts    # Task and attempt observability report (Issue #15, #24)
-│   │   └── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15, #24)
+│   │   ├── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15, #24)
+│   │   └── render-operator-verification.ts # Operator verification page (Issue #64)
 │   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
 │   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
 │   │   ├── verification-propose.ts  # Propose a verification spec as the operator
@@ -42,11 +43,14 @@ devin-superset-remediation/
 │   │   ├── git-workspace.ts  # Per-repo workspace clone and exact-SHA checkout
 │   │   ├── repo-setup.ts     # Repository setup adapters (superset uv venv, noop)
 │   │   ├── github-checks.ts  # Check-run/combined-status evaluation
-│   │   └── verify-remediation.ts # Verification orchestration per poll
+│   │   ├── verify-remediation.ts # Verification orchestration per poll
+│   │   ├── workspace-lock.ts # In-process per-workspace verification mutex
+│   │   └── rerun.ts           # Shared explicit verification rerun (Issue #64)
 │   └── routes/               # Fastify routes
 │       ├── health.ts         # Health check endpoint
 │       ├── report.ts         # JSON report and HTML dashboard (Issue #15)
-│       └── github-webhook.ts # POST /webhooks/github with route-scoped raw-body parser (Issue #22)
+│       ├── github-webhook.ts # POST /webhooks/github with route-scoped raw-body parser (Issue #22)
+│       └── operator-verification.ts # Browser verification workflow (Issue #64)
 ├── scripts/
 │   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
 │   ├── demo-db-env.ts        # Isolate the state-restart demo database

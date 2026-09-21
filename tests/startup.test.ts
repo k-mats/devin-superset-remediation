@@ -38,9 +38,40 @@ describe('Startup on a fresh database', () => {
       const response = await server.inject({ method: 'GET', url: '/ready' });
       expect(response.statusCode).toBe(200);
       expect(fetchSpy).not.toHaveBeenCalled();
+      const operator = await server.inject({
+        method: 'GET',
+        url: '/operator/attempts/999/verification',
+      });
+      expect(operator.statusCode).toBe(404);
     } finally {
       await server.close();
       fetchSpy.mockRestore();
+    }
+  });
+
+  it('returns 503 for browser rerun when verification is disabled', async () => {
+    process.env['DATABASE_PATH'] = databasePath;
+    process.env['VERIFICATION_ENABLED'] = 'false';
+    delete process.env['GITHUB_TOKEN'];
+    removeDatabaseFiles();
+    vi.resetModules();
+    const { buildServer } = await import('../src/index.js');
+    const server = await buildServer();
+    const { getDb, runMigrations } = await import('../src/db/client.js');
+    const { createAttempt, upsertTask } = await import('../src/db/task-state.js');
+    runMigrations();
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 64 }, getDb());
+    const attempt = createAttempt(task.id, getDb());
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: `/operator/attempts/${String(attempt.id)}/verification/rerun`,
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.payload).toContain('verification_disabled');
+    } finally {
+      await server.close();
+      delete process.env['VERIFICATION_ENABLED'];
     }
   });
 

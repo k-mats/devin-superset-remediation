@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
 import { reportRoutes } from './routes/report.js';
+import { operatorVerificationRoutes } from './routes/operator-verification.js';
 import { githubWebhookRoutes } from './routes/github-webhook.js';
 import { closeDb, runMigrations } from './db/client.js';
 import { createGitHubClientFromConfig, type GitHubClient } from './github/client.js';
@@ -12,6 +13,7 @@ import { startIntakePoller } from './intake/github-intake.js';
 import { startDispatchPoller } from './dispatch/devin-dispatcher.js';
 import { startTrackingPoller } from './tracking/session-tracker.js';
 import { startReconciliationPoller } from './dispatch/reconcile-uncertain-dispatch.js';
+import { verificationOptionsFromConfig } from './verification/rerun.js';
 
 export async function buildServer() {
   // Bring the schema up to date before the server can accept traffic.
@@ -24,8 +26,19 @@ export async function buildServer() {
     forceCloseConnections: true,
   });
 
+  let githubClient: GitHubClient | undefined;
+  const getGitHubClient = () => {
+    githubClient ??= createGitHubClientFromConfig(config);
+    return githubClient;
+  };
+
   await server.register(healthRoutes);
   await server.register(reportRoutes);
+  await server.register(operatorVerificationRoutes, {
+    getGitHubClient: () => (config.githubToken ? getGitHubClient() : undefined),
+    verification: config.verificationEnabled ? verificationOptionsFromConfig(config) : undefined,
+    logger: server.log,
+  });
 
   if (!config.githubWebhookSecret) {
     server.log.info('GitHub webhook intake disabled (GITHUB_WEBHOOK_SECRET not set)');
@@ -47,12 +60,6 @@ export async function buildServer() {
     });
     server.log.info({ path: '/webhooks/github' }, 'GitHub webhook intake enabled');
   }
-
-  let githubClient: GitHubClient | undefined;
-  const getGitHubClient = () => {
-    githubClient ??= createGitHubClientFromConfig(config);
-    return githubClient;
-  };
 
   let stopIntakePoller: (() => Promise<void>) | undefined;
   if (config.githubPollIntervalMs === 0) {
