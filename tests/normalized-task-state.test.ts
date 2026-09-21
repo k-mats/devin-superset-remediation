@@ -715,6 +715,27 @@ describe('projectTaskState (db-backed)', () => {
     expect(projectTaskState(unchanged, db).state).toBe('VERIFIED');
   });
 
+  it('leaves a verifying attempt untouched when onlySource does not match', () => {
+    const db = getDb();
+    const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 17 });
+    const attempt = createAttempt(task.id, db);
+    markDispatching(attempt.id, db);
+    markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
+    markRunning(attempt.id, db);
+    markVerifying(attempt.id, db);
+
+    const script = 'echo ok';
+    const withCandidate = setVerificationCandidate(
+      attempt.id,
+      { shell: 'bash', script },
+      'issue_verification_section',
+      db
+    );
+    const cleared = clearVerificationCandidate(attempt.id, { onlySource: 'operator' }, db);
+    expect(cleared.verificationCandidateSha256).toBe(withCandidate.verificationCandidateSha256);
+    expect(cleared.verificationCandidateSource).toBe('issue_verification_section');
+  });
+
   it('projects VERIFIED for a completed attempt and demotes it when the head moves', () => {
     const db = getDb();
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 15 });

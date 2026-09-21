@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, max, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, max, ne, or } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -480,9 +480,13 @@ export function setVerificationCandidate(
       verificationCandidateUpdatedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(attempts.id, attemptId))
+    .where(and(eq(attempts.id, attemptId), ne(attempts.state, 'completed')))
     .run();
   if (result.changes !== 1) {
+    const current = requireAttempt(attemptId, db);
+    if (current.state === 'completed') {
+      throw new AttemptCompletedError(attemptId);
+    }
     throw new Error(`Attempt ${String(attemptId)} could not be updated`);
   }
   return requireAttempt(attemptId, db);
@@ -498,7 +502,8 @@ export function clearVerificationCandidate(
     throw new AttemptCompletedError(attemptId);
   }
   const timestamp = Date.now();
-  db.update(attempts)
+  const result = db
+    .update(attempts)
     .set({
       verificationCandidateShell: null,
       verificationCandidateScript: null,
@@ -510,10 +515,18 @@ export function clearVerificationCandidate(
     .where(
       and(
         eq(attempts.id, attemptId),
+        ne(attempts.state, 'completed'),
         opts.onlySource ? eq(attempts.verificationCandidateSource, opts.onlySource) : undefined
       )
     )
     .run();
+  if (result.changes === 0) {
+    const current = requireAttempt(attemptId, db);
+    if (current.state === 'completed') {
+      throw new AttemptCompletedError(attemptId);
+    }
+    return current;
+  }
   return requireAttempt(attemptId, db);
 }
 
@@ -544,9 +557,19 @@ export function approveVerificationSpec(
       verificationApprovedBy: approvedBy,
       updatedAt: timestamp,
     })
-    .where(and(eq(attempts.id, attemptId), eq(attempts.verificationCandidateSha256, specSha256)))
+    .where(
+      and(
+        eq(attempts.id, attemptId),
+        ne(attempts.state, 'completed'),
+        eq(attempts.verificationCandidateSha256, specSha256)
+      )
+    )
     .run();
   if (result.changes !== 1) {
+    const current = requireAttempt(attemptId, db);
+    if (current.state === 'completed') {
+      throw new AttemptCompletedError(attemptId);
+    }
     throw new VerificationSpecMismatchError(attemptId);
   }
   return requireAttempt(attemptId, db);
