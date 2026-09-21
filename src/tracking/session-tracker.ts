@@ -21,6 +21,7 @@ import {
   verifyRemediationOnce,
   type VerifyRemediationOptions,
 } from '../verification/verify-remediation.js';
+import { projectTaskState } from './normalized-task-state.js';
 
 export type TrackingDecision =
   | 'snapshot_only'
@@ -82,6 +83,28 @@ function isLookupDeferred(error: unknown): boolean {
   return (
     error instanceof GitHubApiError &&
     (error.status === 429 || error.rateLimited || error.status >= 500)
+  );
+}
+
+function logNormalizedState(
+  attemptId: number,
+  decision: TrackingDecision,
+  opts: SessionTrackerOptions,
+  db: Db
+): void {
+  const current = getAttempt(attemptId, db);
+  if (!current) return;
+  const projection = projectTaskState(current, db);
+  opts.logger.info(
+    {
+      ...logContext(current),
+      decision,
+      normalized_state: projection.state,
+      normalized_reason: projection.reason,
+      raw_devin_status: current.devinSessionStatus,
+      pr_state: current.prState,
+    },
+    'Normalized task state'
   );
 }
 
@@ -169,7 +192,9 @@ export async function trackAttemptOnce(
     if (refreshed !== 'pr_refreshed') return refreshed ?? 'failed';
     current = getAttempt(current.id, db);
     if (!current) return refreshed;
-    return (await maybeVerifyRemediation(current, task, opts, db)) ?? refreshed;
+    const catchDecision = (await maybeVerifyRemediation(current, task, opts, db)) ?? refreshed;
+    logNormalizedState(attempt.id, catchDecision, opts, db);
+    return catchDecision;
   }
   let current = getAttempt(attempt.id, db);
   if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after snapshot`);
@@ -274,6 +299,7 @@ export async function trackAttemptOnce(
       decision = verificationDecision;
     }
   }
+  logNormalizedState(attempt.id, decision, opts, db);
   return decision;
 }
 
@@ -332,7 +358,10 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
   for (const { attempt, task } of trackedRows) {
     try {
       const decision = await refreshPullRequest(attempt, task, opts, db);
-      if (decision) countDecision(result, decision);
+      if (decision) {
+        countDecision(result, decision);
+        logNormalizedState(attempt.id, decision, opts, db);
+      }
     } catch (error: unknown) {
       opts.logger.error(
         { err: error, ...logContext(attempt) },
