@@ -84,15 +84,16 @@ timestamp). A candidate can come from a `## Verification` fenced block in the
 issue body, from the agent's reported `tests_run` commands (candidate only —
 agent-reported commands are never executed without an operator approval via
 `pnpm verification:approve`), or from `pnpm verification:propose` (operator).
-An issue-defined spec is pre-approved only when it is already present at
-dispatch time (`issue_verification_section` approver set during dispatch); a
-section added or edited afterwards produces a new candidate in
-`pending_approval` and never executes. Operator candidates are likewise never
-overwritten by later issue edits. When the candidate's sha256 matches the
-approved sha256 the spec is approved; a changed candidate automatically falls
-back to `pending_approval` because the hashes differ. Note that applying the
-`devin-ready` label is _not_ command approval — only a spec present at
-dispatch or an explicit operator approval authorizes execution.
+Every source — including a `## Verification` section already present at
+dispatch time — produces a _candidate_ only; the issue-defined spec is
+surfaced as the preferred candidate but is never approved automatically.
+Operator candidates are never overwritten by later issue edits. When the
+candidate's sha256 matches the approved sha256 the spec is approved; a changed
+candidate automatically falls back to `pending_approval` because the hashes
+differ. Applying the `devin-ready` label is _not_ command approval — it only
+authorizes dispatching remediation. The single rule is: no shell verification
+command executes without an explicit `pnpm verification:approve` of its exact
+hash.
 
 While an attempt is in `verifying`, each tracking pass evaluates two signals
 for the current PR head and appends them to the `verifications` table

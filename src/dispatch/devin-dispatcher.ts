@@ -5,7 +5,6 @@ import type { GitHubClient, GitHubIssue } from '../github/client.js';
 import { getDb } from '../db/client.js';
 import type { Attempt, Task } from '../db/schema.js';
 import {
-  approveVerificationSpec,
   claimAttemptForDispatch,
   completeAttempt,
   findPendingAttempts,
@@ -170,12 +169,6 @@ export async function dispatchAttempt(
       );
       if (specResult.ok) {
         setVerificationCandidate(attempt.id, specResult.spec, 'issue_verification_section', tx);
-        approveVerificationSpec(
-          attempt.id,
-          specResult.spec.sha256,
-          'issue_verification_section',
-          tx
-        );
       }
     });
   } catch (error: unknown) {

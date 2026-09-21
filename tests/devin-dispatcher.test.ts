@@ -389,7 +389,7 @@ describe('Devin dispatcher', () => {
     expect(request?.prompt).toContain('schema_version');
   });
 
-  it('pre-approves a verification spec present in the issue body at dispatch', async () => {
+  it('records an issue verification spec as an unapproved candidate at dispatch', async () => {
     await intakeIssueOnce();
     const { attempt, task } = pendingAttempt();
     const body = 'Fix it\n\n## Verification\n\n```bash\npytest -k x\n```\n';
@@ -405,11 +405,11 @@ describe('Devin dispatcher', () => {
       verificationCandidateSource: 'issue_verification_section',
       verificationCandidateShell: 'bash',
       verificationCandidateScript: 'pytest -k x',
-      verificationApprovedBy: 'issue_verification_section',
-      verificationApprovedScript: 'pytest -k x',
+      verificationApprovedSha256: null,
+      verificationApprovedBy: null,
+      verificationApprovedScript: null,
     });
     expect(updated?.verificationCandidateSha256).not.toBeNull();
-    expect(updated?.verificationApprovedSha256).toBe(updated?.verificationCandidateSha256);
   });
 
   it('leaves verification columns empty when the issue body has no spec at dispatch', async () => {

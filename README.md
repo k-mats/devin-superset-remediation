@@ -36,7 +36,7 @@ This project implements an automated system that:
 
 ### Verification specs
 
-Issues can carry a human-approved verification command in a
+Issues can propose a verification command in a
 `## Verification` (or `#`/`###`) section containing a fenced code block tagged
 `bash` (run via `bash -euo pipefail`) or `sh`/`shell`/untagged (run via
 `sh -eu`):
@@ -47,11 +47,12 @@ Issues can carry a human-approved verification command in a
     source .venv/bin/activate && pytest tests/unit_tests/ -k my_test
     ```
 
-The block's content is hashed (sha256) and pinned per attempt; only the
-approved spec ever executes. A spec is pre-approved only when it is present
-in the issue body at dispatch time — a section added or edited afterwards
-becomes `pending_approval` until an operator runs
-`pnpm verification:approve --attempt <id> --spec-hash <sha256>`
+The block's content is hashed (sha256) and stored per attempt as a
+_candidate_; it is never approved automatically (`devin-ready` authorizes
+remediation, not shell commands). Every candidate — issue section,
+agent-reported tests, or operator proposal — stays `pending_approval` until an
+operator runs `pnpm verification:approve --attempt <id> --spec-hash <sha256>`,
+and only the approved spec ever executes
 (inspect with `pnpm verification:show --attempt <id>`, propose a spec with
 `pnpm verification:propose --attempt <id> --command "<cmd>"`).
 

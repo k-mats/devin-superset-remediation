@@ -367,7 +367,7 @@ describe('independent verification integration', () => {
       sha256: hashVerificationSpec('bash', 'echo ok'),
     };
     setVerificationCandidate(attemptId, spec, 'issue_verification_section');
-    approveVerificationSpec(attemptId, spec.sha256, 'issue_verification_section');
+    approveVerificationSpec(attemptId, spec.sha256, 'operator');
   };
 
   it('runs verification for a verifying attempt with a refreshed PR', async () => {

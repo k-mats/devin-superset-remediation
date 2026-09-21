@@ -42,7 +42,7 @@ function freshAttempt(id: number) {
 function approveIssueSpec(attemptId: number, script: string, shell: 'bash' | 'sh' = 'bash') {
   const approved = spec(script, shell);
   setVerificationCandidate(attemptId, approved, 'issue_verification_section');
-  approveVerificationSpec(attemptId, approved.sha256, 'issue_verification_section');
+  approveVerificationSpec(attemptId, approved.sha256, 'operator');
   return approved;
 }
 
@@ -203,7 +203,7 @@ describe('verifyRemediationOnce', () => {
       state: 'completed',
       outcome: 'succeeded',
       verificationCandidateSource: 'issue_verification_section',
-      verificationApprovedBy: 'issue_verification_section',
+      verificationApprovedBy: 'operator',
     });
     expect(updated?.outcomeReason).toContain('head-1');
     const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
