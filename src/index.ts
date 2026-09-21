@@ -110,6 +110,15 @@ export async function buildServer() {
         staleWarnMs: config.devinSessionStaleWarnMs,
         intervalMs: config.devinTrackingIntervalMs,
         logger: server.log,
+        verification: config.verificationEnabled
+          ? {
+              workspaceRoot: config.verificationWorkspaceRoot,
+              commandTimeoutMs: config.verificationCommandTimeoutMs,
+              setupTimeoutMs: config.verificationSetupTimeoutMs,
+              checkoutTimeoutMs: config.verificationCheckoutTimeoutMs,
+              maxOutputBytes: config.verificationMaxOutputBytes,
+            }
+          : undefined,
       });
       stopTrackingPoller = () => poller.stop();
     }

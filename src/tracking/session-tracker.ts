@@ -17,6 +17,10 @@ import {
 } from '../db/task-state.js';
 import { collectStructuredOutput } from '../outcome/collect-structured-output.js';
 import { verifyAgentPullRequest } from '../outcome/verify-pull-request.js';
+import {
+  verifyRemediationOnce,
+  type VerifyRemediationOptions,
+} from '../verification/verify-remediation.js';
 
 export type TrackingDecision =
   | 'snapshot_only'
@@ -27,6 +31,11 @@ export type TrackingDecision =
   | 'verifying'
   | 'pr_refreshed'
   | 'pr_lookup_deferred'
+  | 'verification_passed'
+  | 'verification_failed'
+  | 'verification_unverified'
+  | 'verification_error'
+  | 'verification_skipped'
   | 'failed';
 
 export interface TrackingResult {
@@ -40,15 +49,21 @@ export interface TrackingResult {
   verifying: number;
   prRefreshed: number;
   prLookupDeferred: number;
+  verificationPassed: number;
+  verificationFailed: number;
+  verificationUnverified: number;
+  verificationError: number;
   failed: number;
 }
 
 export interface SessionTrackerOptions {
   devin: Pick<DevinClient, 'getSession'>;
-  github: Pick<GitHubClient, 'getPullRequest'>;
+  github: Pick<GitHubClient, 'getPullRequest'> &
+    Partial<Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
   staleWarnMs: number;
+  verification?: Omit<VerifyRemediationOptions, 'logger' | 'db' | 'github'>;
 }
 
 export function toEpochMs(value: number): number {
@@ -223,9 +238,24 @@ export async function trackAttemptOnce(
   }
 
   current = getAttempt(current.id, db);
+  let deferred = false;
   if (!enteredVerifying && current?.state === 'verifying' && current.prUrl !== null) {
     const refreshed = await refreshPullRequest(current, task, opts, db);
     if (refreshed) decision = refreshed;
+    deferred = refreshed === 'pr_lookup_deferred';
+  }
+
+  current = current ? getAttempt(current.id, db) : undefined;
+  if (current?.state === 'verifying' && opts.verification !== undefined && !deferred) {
+    const verificationDecision = await verifyRemediationOnce(current, task, {
+      ...opts.verification,
+      github: opts.github as Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>,
+      logger: opts.logger,
+      db,
+    });
+    if (verificationDecision !== 'verification_skipped') {
+      decision = verificationDecision;
+    }
   }
   return decision;
 }
@@ -239,6 +269,10 @@ function countDecision(result: TrackingResult, decision: TrackingDecision) {
   else if (decision === 'verifying') result.verifying += 1;
   else if (decision === 'pr_refreshed') result.prRefreshed += 1;
   else if (decision === 'pr_lookup_deferred') result.prLookupDeferred += 1;
+  else if (decision === 'verification_passed') result.verificationPassed += 1;
+  else if (decision === 'verification_failed') result.verificationFailed += 1;
+  else if (decision === 'verification_unverified') result.verificationUnverified += 1;
+  else if (decision === 'verification_error') result.verificationError += 1;
   else result.failed += 1;
 }
 
@@ -257,6 +291,10 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     verifying: 0,
     prRefreshed: 0,
     prLookupDeferred: 0,
+    verificationPassed: 0,
+    verificationFailed: 0,
+    verificationUnverified: 0,
+    verificationError: 0,
     failed: 0,
   };
 
