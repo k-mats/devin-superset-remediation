@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
-import { DevinApiError, type SessionResponse } from '../src/devin/client.js';
+import { DevinApiError, DevinClient, type SessionResponse } from '../src/devin/client.js';
+import { projectTaskState } from '../src/tracking/normalized-task-state.js';
 import {
   approveVerificationSpec,
   createAttempt,
@@ -265,6 +266,93 @@ describe('session tracker', () => {
       state: 'session_created',
       outcome: null,
       agentOutcome: 'remediated',
+    });
+  });
+
+  it.each([
+    ['unknown status', { status: 'archived', status_detail: 'finished' }],
+    ['unknown status_detail', { status: 'exit', status_detail: 'brand_new_detail' }],
+  ])('leaves a running attempt non-terminal when Devin reports an %s', async (_label, patch) => {
+    const { attempt } = activeAttempt(30);
+    markRunning(attempt.id);
+    const before = getAttempt(attempt.id);
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ...session(),
+            ...patch,
+            structured_output: {
+              schema_version: 1,
+              outcome: 'remediated',
+              pr_url: 'https://github.com/owner/repo/pull/12',
+              diagnosis: 'Fixed',
+              tests_run: [],
+              risks: [],
+              needs_human_reason: null,
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    );
+    const devin = new DevinClient({ apiKey: 'k', orgId: 'org', fetchFn });
+    const getPullRequest = vi.fn().mockResolvedValue(pullRequest());
+    const log = logger();
+
+    const result = await runTrackingOnce({
+      devin,
+      github: { getPullRequest },
+      logger: log,
+      staleWarnMs: 0,
+    });
+
+    expect(result.failed).toBe(1);
+    expect(getPullRequest).not.toHaveBeenCalled();
+    const after = getAttempt(attempt.id);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({
+      state: 'running',
+      outcome: null,
+      agentOutcome: null,
+      structuredOutputAcceptedAt: null,
+    });
+    if (!after) throw new Error('attempt missing');
+    expect(projectTaskState(after)).toMatchObject({ state: 'RUNNING', reason: 'attempt_running' });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ attempt_id: attempt.id }),
+      expect.any(String)
+    );
+  });
+
+  it('records a plain closed PR while verifying and projects NEEDS_HUMAN', async () => {
+    const { attempt } = activeAttempt(31);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(attempt.id);
+
+    await runTrackingOnce({
+      devin: { getSession: vi.fn().mockResolvedValue(session({ status: 'exit' })) },
+      github: {
+        getPullRequest: vi
+          .fn()
+          .mockResolvedValue(pullRequest({ state: 'closed', merged_at: null })),
+      },
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    const after = getAttempt(attempt.id);
+    expect(after).toMatchObject({ state: 'verifying', outcome: null, prState: 'closed' });
+    if (!after) throw new Error('attempt missing');
+    expect(projectTaskState(after)).toMatchObject({
+      state: 'NEEDS_HUMAN',
+      reason: 'pr_closed_without_merge',
     });
   });
 

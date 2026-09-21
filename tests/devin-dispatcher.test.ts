@@ -6,7 +6,12 @@ import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { config } from '../src/config.js';
 import { attempts, tasks, verifications, type Attempt, type Task } from '../src/db/schema.js';
 import { GitHubApiError, type GitHubIssue } from '../src/github/client.js';
-import type { CreateSessionRequest, SessionResponse } from '../src/devin/client.js';
+import {
+  DevinApiError,
+  type CreateSessionRequest,
+  type SessionResponse,
+} from '../src/devin/client.js';
+import { projectTaskState } from '../src/tracking/normalized-task-state.js';
 
 type CreateSession = (req: CreateSessionRequest) => Promise<SessionResponse>;
 import {
@@ -341,6 +346,47 @@ describe('Devin dispatcher', () => {
       'Devin session creation failed; attempt left in dispatching state'
     );
   });
+
+  it.each<[string, Error]>([
+    ['network error', new Error('devin down')],
+    [
+      'request timeout',
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    ],
+    ['abort', new DOMException('The operation was aborted', 'AbortError')],
+    ['5xx response', new DevinApiError(503, 'POST', '/sessions', 'Service Unavailable')],
+  ])(
+    'keeps an uncertain createSession result (%s) in dispatching and never redispatches it',
+    async (_label, error) => {
+      await intakeIssueOnce();
+      const { attempt } = pendingAttempt();
+      const devin = fakeDevin();
+      devin.createSession.mockRejectedValueOnce(error);
+
+      const first = await runDispatchOnce(dispatchOptions({ devin }));
+      expect(first).toMatchObject({ pending: 1, dispatched: 0, failed: 1 });
+      expect(devin.createSession).toHaveBeenCalledTimes(1);
+
+      // Repeated intake and dispatch polls must not spend another session on
+      // an attempt whose create result is unknown; recovery is Issue #20's job.
+      for (let run = 0; run < 3; run += 1) {
+        await intakeIssueOnce();
+        const later = await runDispatchOnce(dispatchOptions({ devin }));
+        expect(later).toMatchObject({ pending: 0, dispatched: 0 });
+      }
+      expect(devin.createSession).toHaveBeenCalledTimes(1);
+
+      const stored = getAttempt(attempt.id);
+      expect(stored).toMatchObject({ state: 'dispatching', devinSessionId: null, outcome: null });
+      expect(stored?.dispatchedAt).not.toBeNull();
+      expect(listAttempts(attempt.taskId)).toHaveLength(1);
+      if (!stored) throw new Error('attempt missing');
+      expect(projectTaskState(stored)).toMatchObject({
+        state: 'DISPATCHING',
+        reason: 'attempt_dispatching',
+      });
+    }
+  );
 
   it('does not dispatch a task whose attempt history is completed', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });

@@ -152,8 +152,11 @@ describe('DevinClient', () => {
     await expect(client.getSession('devin-abc')).rejects.toThrow(/unexpected response/i);
   });
 
-  it('rejects when status is not a known enum value', async () => {
-    const fetchFn = mockFetch({ ...sessionJson, status: 'bogus' });
+  it.each([
+    ['unknown status', { status: 'bogus' }],
+    ['unknown status_detail', { status: 'exit', status_detail: 'mysterious_new_detail' }],
+  ])('rejects a session payload with an %s instead of guessing a phase', async (_label, patch) => {
+    const fetchFn = mockFetch({ ...sessionJson, ...patch });
     const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
 
     await expect(client.getSession('devin-abc')).rejects.toThrow(/unexpected response/i);
