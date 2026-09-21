@@ -35,6 +35,18 @@ async function git(args: string[], cwd: string | undefined, timeoutMs: number): 
   return stdout.trim();
 }
 
+async function fetchSha(input: CheckoutInput): Promise<void> {
+  try {
+    await git(['fetch', 'origin', input.headSha], input.workspaceDir, input.timeoutMs);
+  } catch (error: unknown) {
+    input.logger.warn(
+      { err: error, head_sha: input.headSha },
+      'Fetching the exact commit failed; falling back to a full origin fetch'
+    );
+    await git(['fetch', 'origin'], input.workspaceDir, input.timeoutMs);
+  }
+}
+
 export async function checkoutExactSha(input: CheckoutInput): Promise<void> {
   const gitDir = path.join(input.workspaceDir, '.git');
   if (!fs.existsSync(gitDir)) {
@@ -44,17 +56,8 @@ export async function checkoutExactSha(input: CheckoutInput): Promise<void> {
       undefined,
       input.timeoutMs
     );
-  } else {
-    try {
-      await git(['fetch', 'origin', input.headSha], input.workspaceDir, input.timeoutMs);
-    } catch (error: unknown) {
-      input.logger.warn(
-        { err: error, head_sha: input.headSha },
-        'Fetching the exact commit failed; falling back to a full origin fetch'
-      );
-      await git(['fetch', 'origin'], input.workspaceDir, input.timeoutMs);
-    }
   }
+  await fetchSha(input);
 
   await git(
     ['checkout', '--detach', '--force', input.headSha],

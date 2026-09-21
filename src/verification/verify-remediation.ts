@@ -224,17 +224,24 @@ export async function verifyRemediationOnce(
     (latestCommand.status === 'passed' || latestCommand.status === 'failed') &&
     latestCommand.specSha256 === approved.sha256
   ) {
-    if (
-      latestCommand.status === 'passed' &&
-      attempt.state === 'verifying' &&
-      attempt.prHeadSha === headSha
-    ) {
-      completeAttempt(
-        attempt.id,
-        'succeeded',
-        { reason: `independent_verification_passed: ${headSha}` },
-        db
-      );
+    if (latestCommand.status === 'passed') {
+      const specSha = latestCommand.specSha256;
+      db.transaction((tx) => {
+        const fresh = getAttempt(attempt.id, tx);
+        if (
+          fresh?.state === 'verifying' &&
+          fresh.prHeadSha === headSha &&
+          fresh.verificationCandidateSha256 === specSha &&
+          fresh.verificationApprovedSha256 === specSha
+        ) {
+          completeAttempt(
+            attempt.id,
+            'succeeded',
+            { reason: `independent_verification_passed: ${headSha}` },
+            tx
+          );
+        }
+      });
     }
     return decisionFor(latestCommand.status);
   }

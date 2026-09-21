@@ -113,9 +113,46 @@ describe('GitHubClient check endpoints', () => {
     const result = await client.getCombinedStatus('owner', 'repo', 'abc123');
 
     expect(fetchFn.mock.calls[0]?.[0]).toBe(
-      'https://api.github.com/repos/owner/repo/commits/abc123/status'
+      'https://api.github.com/repos/owner/repo/commits/abc123/status?per_page=100&page=1'
     );
     expect(result).toMatchObject({ state: 'success', total_count: 1 });
+  });
+
+  it('paginates combined statuses so a failure on a later page is caught', async () => {
+    const status = (context: string, state: string) => ({ context, state, target_url: 'u' });
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            state: 'success',
+            total_count: 3,
+            statuses: [status('a', 'success'), status('b', 'success')],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            state: 'success',
+            total_count: 3,
+            statuses: [status('ci-required', 'failure')],
+          }),
+          { status: 200 }
+        )
+      );
+    const client = new GitHubClient({ token: 't', fetchFn, perPage: 2 });
+
+    const result = await client.getCombinedStatus('owner', 'repo', 'abc123');
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn.mock.calls[1]?.[0]).toContain('page=2');
+    expect(result.statuses.map((entry) => entry.context)).toEqual(['a', 'b', 'ci-required']);
+    expect(result).toMatchObject({ state: 'success', total_count: 3 });
+    const evaluation = evaluateGitHubChecks({ total_count: 0, check_runs: [] }, result);
+    expect(evaluation.status).toBe('failed');
+    expect(evaluation.summary).toContain('ci-required');
   });
 
   it('rejects malformed check run responses', async () => {

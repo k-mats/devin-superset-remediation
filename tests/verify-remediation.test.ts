@@ -437,6 +437,26 @@ describe('verifyRemediationOnce', () => {
     expect(freshAttempt(attempt.id).state).toBe('completed');
   });
 
+  it('does not repair completion when the spec was superseded after a recorded pass', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const approved = approveIssueSpec(attempt.id, 'echo ok');
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'head-1',
+      kind: 'command',
+      status: 'passed',
+      specShell: approved.shell,
+      specScript: approved.script,
+      specSha256: approved.sha256,
+    });
+    setVerificationCandidate(attempt.id, spec('echo changed'), 'operator');
+    const opts = options();
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_unverified');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+    expect(freshAttempt(attempt.id).state).toBe('verifying');
+  });
+
   it('records a passed row but does not complete when the spec was superseded during the run', async () => {
     const { task, attempt } = verifyingAttempt();
     const approved = approveIssueSpec(attempt.id, 'echo ok');

@@ -204,15 +204,25 @@ export class GitHubClient {
   }
 
   async getCombinedStatus(owner: string, repo: string, ref: string): Promise<GitHubCombinedStatus> {
-    const path = `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/status`;
-    const json = await this.request(path);
-    const parsed = githubCombinedStatusSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new Error(
-        `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`
-      );
+    const statuses: GitHubCombinedStatus['statuses'] = [];
+    let firstPage: GitHubCombinedStatus | undefined;
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const path = `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/status?per_page=${String(this.perPage)}&page=${String(page)}`;
+      const json = await this.request(path);
+      const parsed = githubCombinedStatusSchema.safeParse(json);
+      if (!parsed.success) {
+        throw new Error(
+          `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`
+        );
+      }
+      firstPage ??= parsed.data;
+      statuses.push(...parsed.data.statuses);
+      if (parsed.data.statuses.length < this.perPage) {
+        return { ...firstPage, statuses };
+      }
     }
-    return parsed.data;
+
+    throw new Error(`GitHub API pagination exceeded the ${String(MAX_PAGES)}-page safety limit`);
   }
 }
 
