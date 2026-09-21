@@ -2,7 +2,15 @@ import { resolve } from 'node:path';
 import { asc } from 'drizzle-orm';
 import { config } from '../config.js';
 import { getDb } from '../db/client.js';
-import { tasks, type Attempt, type AttemptOutcome } from '../db/schema.js';
+import {
+  tasks,
+  type Attempt,
+  type AttemptOutcome,
+  type Verification,
+  type VerificationKind,
+  type VerificationStatus,
+} from '../db/schema.js';
+import type { AgentOutcome } from '../devin/structured-output.js';
 import {
   findLatestVerification,
   listAttempts,
@@ -15,6 +23,7 @@ import {
   type NormalizedTaskState,
   type TaskStateProjection,
 } from '../tracking/normalized-task-state.js';
+import { approvalStatus, type ApprovalStatus } from '../verification/approval.js';
 
 export const TASK_BUCKETS = [
   'active',
@@ -100,6 +109,90 @@ export interface ReportTaskRow {
   verifiedAt: number | null;
 }
 
+export interface LedgerVerificationEvidence {
+  verificationId: number;
+  kind: VerificationKind;
+  status: VerificationStatus;
+  reason: string | null;
+  headSha: string;
+  specSha256: string | null;
+  exitCode: number | null;
+  evidenceUrl: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  createdAt: number;
+}
+
+export interface LedgerAttemptEvidence {
+  attemptId: number;
+  attemptNumber: number;
+  correlationId: string;
+  state: NormalizedTaskState;
+  reason: string;
+  attemptState: Attempt['state'];
+  outcome: AttemptOutcome | null;
+  outcomeReason: string | null;
+  devinSessionId: string | null;
+  devinSessionUrl: string | null;
+  devinSessionStatus: string | null;
+  devinSessionStatusDetail: string | null;
+  acusConsumed: number | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  prState: Attempt['prState'];
+  prHeadSha: string | null;
+  verification: {
+    command: LedgerVerificationEvidence | null;
+    githubChecks: LedgerVerificationEvidence | null;
+    prior: LedgerVerificationEvidence[];
+    stale: LedgerVerificationEvidence[];
+  };
+  approval: {
+    status: ApprovalStatus;
+    approvedSha256: string | null;
+    approvedAt: number | null;
+    approvedBy: string | null;
+    candidateSha256: string | null;
+    candidateSource: Attempt['verificationCandidateSource'];
+  };
+  agentReported: {
+    outcome: AgentOutcome | null;
+    prUrl: string | null;
+    needsHumanReason: string | null;
+    acceptedAt: number | null;
+  };
+  timestamps: {
+    createdAt: number;
+    dispatchedAt: number | null;
+    sessionCreatedAt: number | null;
+    sessionUpdatedAt: number | null;
+    sessionLastPolledAt: number | null;
+    prLastCheckedAt: number | null;
+    completedAt: number | null;
+    terminalAt: number | null;
+    verifiedAt: number | null;
+  };
+}
+
+export interface LedgerRow {
+  taskId: number;
+  repoOwner: string;
+  repoName: string;
+  issueNumber: number;
+  issueUrl: string;
+  title: string | null;
+  state: NormalizedTaskState;
+  reason: string;
+  bucket: TaskBucket;
+  attemptCount: number;
+  current: LedgerAttemptEvidence | null;
+  history: LedgerAttemptEvidence[];
+  discoveredAt: number;
+  lastUpdatedAt: number;
+  terminalAt: number | null;
+  verifiedAt: number | null;
+}
+
 export interface WindowCounts {
   last24h: number;
   last7d: number;
@@ -145,6 +238,7 @@ export interface Report {
     basis: 'all_terminal_attempts';
   };
   tasks: ReportTaskRow[];
+  ledger: LedgerRow[];
   tasksWithoutAttempts: number;
 }
 
@@ -168,6 +262,107 @@ function commandVerification(attempt: Attempt, db: DbExecutor) {
   return attempt.prHeadSha === null
     ? undefined
     : findLatestVerification(attempt.id, attempt.prHeadSha, 'command', db);
+}
+
+function toLedgerVerification(verification: Verification): LedgerVerificationEvidence {
+  return {
+    verificationId: verification.id,
+    kind: verification.kind,
+    status: verification.status,
+    reason: verification.reason,
+    headSha: verification.headSha,
+    specSha256: verification.specSha256,
+    exitCode: verification.exitCode,
+    evidenceUrl: verification.evidenceUrl,
+    startedAt: verification.startedAt,
+    finishedAt: verification.finishedAt,
+    createdAt: verification.createdAt,
+  };
+}
+
+function toLedgerAttempt(
+  attempt: Attempt,
+  reportAttempt: ReportAttemptRow,
+  verifications: Verification[],
+  db: DbExecutor
+): LedgerAttemptEvidence {
+  const currentCommand =
+    attempt.prHeadSha === null
+      ? undefined
+      : findLatestVerification(attempt.id, attempt.prHeadSha, 'command', db);
+  const currentGitHubChecks =
+    attempt.prHeadSha === null
+      ? undefined
+      : findLatestVerification(attempt.id, attempt.prHeadSha, 'github_checks', db);
+  const currentVerificationIds = new Set(
+    [currentCommand?.id, currentGitHubChecks?.id].filter(
+      (verificationId): verificationId is number => verificationId !== undefined
+    )
+  );
+  const prior = verifications
+    .filter(
+      (verification) =>
+        attempt.prHeadSha !== null &&
+        verification.headSha === attempt.prHeadSha &&
+        !currentVerificationIds.has(verification.id)
+    )
+    .sort((a, b) => b.createdAt - a.createdAt || b.id - a.id)
+    .map(toLedgerVerification);
+  const stale = verifications
+    .filter((verification) => verification.headSha !== attempt.prHeadSha)
+    .sort((a, b) => b.createdAt - a.createdAt || b.id - a.id)
+    .map(toLedgerVerification);
+
+  return {
+    attemptId: attempt.id,
+    attemptNumber: attempt.attemptNumber,
+    correlationId: attempt.correlationId,
+    state: reportAttempt.projection.state,
+    reason: reportAttempt.projection.reason,
+    attemptState: attempt.state,
+    outcome: attempt.outcome,
+    outcomeReason: attempt.outcomeReason,
+    devinSessionId: attempt.devinSessionId,
+    devinSessionUrl: attempt.devinSessionUrl,
+    devinSessionStatus: attempt.devinSessionStatus,
+    devinSessionStatusDetail: attempt.devinSessionStatusDetail,
+    acusConsumed: attempt.acusConsumed,
+    prUrl: attempt.prUrl,
+    prNumber: attempt.prNumber,
+    prState: attempt.prState,
+    prHeadSha: attempt.prHeadSha,
+    verification: {
+      command: currentCommand ? toLedgerVerification(currentCommand) : null,
+      githubChecks: currentGitHubChecks ? toLedgerVerification(currentGitHubChecks) : null,
+      prior,
+      stale,
+    },
+    approval: {
+      status: approvalStatus(attempt),
+      approvedSha256: attempt.verificationApprovedSha256,
+      approvedAt: attempt.verificationApprovedAt,
+      approvedBy: attempt.verificationApprovedBy,
+      candidateSha256: attempt.verificationCandidateSha256,
+      candidateSource: attempt.verificationCandidateSource,
+    },
+    agentReported: {
+      outcome: attempt.agentOutcome ?? null,
+      prUrl: attempt.agentPrUrl,
+      needsHumanReason: attempt.needsHumanReason,
+      acceptedAt: attempt.structuredOutputAcceptedAt,
+    },
+    timestamps: {
+      createdAt: attempt.createdAt,
+      dispatchedAt: attempt.dispatchedAt,
+      sessionCreatedAt: attempt.sessionCreatedAt,
+      sessionUpdatedAt: attempt.sessionUpdatedAt,
+      sessionLastPolledAt: attempt.sessionLastPolledAt,
+      prLastCheckedAt: attempt.prLastCheckedAt,
+      completedAt: attempt.completedAt,
+      terminalAt: reportAttempt.terminalAt,
+      verifiedAt: reportAttempt.verifiedAt,
+    },
+  };
 }
 
 export function attemptTerminalAt(
@@ -254,13 +449,33 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
   const bucketCounts = emptyBucketCounts();
   const stateCounts = emptyStateCounts();
   const rows: ReportTaskRow[] = [];
+  const ledgerRows: LedgerRow[] = [];
   let tasksWithoutAttempts = 0;
   let terminalWithoutTimestamp = 0;
 
   for (const task of taskRows) {
     const attemptRows = listAttempts(task.id, db);
+    const issueUrl = `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`;
     if (attemptRows.length === 0) {
       tasksWithoutAttempts += 1;
+      ledgerRows.push({
+        taskId: task.id,
+        repoOwner: task.repoOwner,
+        repoName: task.repoName,
+        issueNumber: task.issueNumber,
+        issueUrl,
+        title: task.title,
+        state: 'QUEUED',
+        reason: 'task_without_attempt',
+        bucket: 'active',
+        attemptCount: 0,
+        current: null,
+        history: [],
+        discoveredAt: task.createdAt,
+        lastUpdatedAt: task.updatedAt,
+        terminalAt: null,
+        verifiedAt: null,
+      });
       continue;
     }
     const currentAttempt = latestAttempt(attemptRows);
@@ -287,7 +502,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       repoOwner: task.repoOwner,
       repoName: task.repoName,
       issueNumber: task.issueNumber,
-      issueUrl: `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`,
+      issueUrl,
       title: task.title,
       state: currentProjection.state,
       reason: currentProjection.reason,
@@ -303,6 +518,33 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       verifiedAt: currentReportAttempt.verifiedAt,
     };
     rows.push(row);
+    const ledgerAttempts = attemptRows.map((attempt) => {
+      const reportAttempt = reportAttempts.find((candidate) => candidate.id === attempt.id);
+      if (!reportAttempt) throw new Error('Attempt is missing from ledger history');
+      return toLedgerAttempt(attempt, reportAttempt, listVerifications(attempt.id, db), db);
+    });
+    const currentLedgerAttempt = ledgerAttempts.find(
+      (attempt) => attempt.attemptId === currentAttempt.id
+    );
+    if (!currentLedgerAttempt) throw new Error('Current attempt is missing from ledger history');
+    ledgerRows.push({
+      taskId: task.id,
+      repoOwner: task.repoOwner,
+      repoName: task.repoName,
+      issueNumber: task.issueNumber,
+      issueUrl: row.issueUrl,
+      title: task.title,
+      state: row.state,
+      reason: row.reason,
+      bucket,
+      attemptCount: ledgerAttempts.length,
+      current: currentLedgerAttempt,
+      history: ledgerAttempts,
+      discoveredAt: task.createdAt,
+      lastUpdatedAt,
+      terminalAt: currentReportAttempt.terminalAt,
+      verifiedAt: currentReportAttempt.verifiedAt,
+    });
     bucketCounts[row.bucket] += 1;
     stateCounts[row.state] += 1;
     if (TERMINAL_BUCKETS.includes(row.bucket) && row.terminalAt === null) {
@@ -371,6 +613,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       basis: 'all_terminal_attempts',
     },
     tasks: rows.sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt),
+    ledger: ledgerRows.sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt),
     tasksWithoutAttempts,
   };
 }
