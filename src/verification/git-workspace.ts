@@ -56,7 +56,11 @@ export async function checkoutExactSha(input: CheckoutInput): Promise<void> {
     }
   }
 
-  await git(['checkout', '--detach', input.headSha], input.workspaceDir, input.timeoutMs);
+  await git(
+    ['checkout', '--detach', '--force', input.headSha],
+    input.workspaceDir,
+    input.timeoutMs
+  );
   await git(['clean', '-fdx', '-e', '.venv'], input.workspaceDir, input.timeoutMs);
   const head = await git(['rev-parse', 'HEAD'], input.workspaceDir, input.timeoutMs);
   if (head !== input.headSha) {

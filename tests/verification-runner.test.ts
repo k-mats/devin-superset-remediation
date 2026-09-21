@@ -60,6 +60,24 @@ describe('checkoutExactSha', () => {
     expect(fs.readFileSync(path.join(workspace, 'file.txt'), 'utf8')).toBe('two');
   });
 
+  it('discards modified tracked files on checkout', async () => {
+    const { remote, shaA } = seedRepo();
+    const workspace = path.join(tempDir('verify-ws-'), 'ws');
+    const opts = {
+      cloneUrl: `file://${remote}`,
+      workspaceDir: workspace,
+      timeoutMs: 30_000,
+      logger,
+      headSha: shaA,
+    };
+    await checkoutExactSha(opts);
+
+    fs.writeFileSync(path.join(workspace, 'file.txt'), 'dirty');
+    await checkoutExactSha(opts);
+
+    expect(fs.readFileSync(path.join(workspace, 'file.txt'), 'utf8')).toBe('one');
+  });
+
   it('cleans untracked files but keeps .venv', async () => {
     const { remote, shaA } = seedRepo();
     const workspace = path.join(tempDir('verify-ws-'), 'ws');
@@ -129,6 +147,17 @@ describe('runVerificationCommand', () => {
     expect(result.status).toBe('passed');
     expect(result.output.startsWith('[truncated ')).toBe(true);
     expect(result.output).toContain('line-5000');
+  });
+
+  it('bounds peak retention while streaming large output', async () => {
+    const result = await runVerificationCommand(spec('head -c 200000 /dev/zero'), workspace(), {
+      timeoutMs: 30_000,
+      maxOutputBytes: 1024,
+    });
+    expect(result.status).toBe('passed');
+    expect(result.output.startsWith('[truncated ')).toBe(true);
+    const tail = result.output.slice(result.output.indexOf('\n') + 1);
+    expect(Buffer.byteLength(tail, 'utf8')).toBeLessThanOrEqual(1024);
   });
 
   it('does not leak process.env secrets into the child environment', async () => {

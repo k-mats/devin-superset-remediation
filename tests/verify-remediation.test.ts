@@ -12,6 +12,7 @@ import {
   markVerifying,
   recordPullRequest,
   recordStructuredOutput,
+  recordVerification,
   setVerificationCandidate,
   upsertTask,
 } from '../src/db/task-state.js';
@@ -36,6 +37,25 @@ function freshAttempt(id: number) {
   const attempt = getAttempt(id);
   if (!attempt) throw new Error(`Attempt ${String(id)} not found`);
   return attempt;
+}
+
+function approveIssueSpec(attemptId: number, script: string, shell: 'bash' | 'sh' = 'bash') {
+  const approved = spec(script, shell);
+  setVerificationCandidate(attemptId, approved, 'issue_verification_section');
+  approveVerificationSpec(attemptId, approved.sha256, 'issue_verification_section');
+  return approved;
+}
+
+function prResponse(headSha: string) {
+  return {
+    number: 12,
+    title: 'Remediation PR',
+    html_url: 'https://github.com/owner/repo/pull/12',
+    state: 'open' as const,
+    merged_at: null,
+    body: null,
+    head: { sha: headSha },
+  };
 }
 
 function issueWithSpec(script: string, shell: 'bash' | 'sh' = 'bash'): GitHubIssue {
@@ -72,6 +92,7 @@ function options(overrides: Partial<VerifyRemediationOptions> = {}): VerifyRemed
   return {
     github: {
       getIssue: vi.fn().mockResolvedValue(issueWithSpec('echo ok')),
+      getPullRequest: vi.fn().mockResolvedValue(prResponse('head-1')),
       listCheckRuns: vi.fn().mockResolvedValue({ total_count: 0, check_runs: [] }),
       getCombinedStatus: vi
         .fn()
@@ -142,8 +163,39 @@ describe('verifyRemediationOnce', () => {
     expect(listVerifications(attempt.id).filter((r) => r.kind === 'github_checks')).toHaveLength(0);
   });
 
-  it('auto-approves the issue verification section and runs it', async () => {
+  it('treats a post-dispatch issue verification section as pending_approval without running it', async () => {
     const { task, attempt } = verifyingAttempt();
+    const opts = options();
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_unverified');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+    const updated = freshAttempt(attempt.id);
+    expect(updated.state).toBe('verifying');
+    expect(updated.verificationCandidateSource).toBe('issue_verification_section');
+    expect(updated.verificationApprovedSha256).toBeNull();
+    const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
+    expect(command).toMatchObject({
+      status: 'unverified',
+      reason: 'verification_spec_pending_approval',
+    });
+    expect(command?.evidenceSummary).toContain('source=issue_verification_section');
+  });
+
+  it('does not clobber an operator candidate with a post-dispatch issue section', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const operatorSpec = setVerificationCandidate(attempt.id, spec('echo op'), 'operator');
+    const opts = options();
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_unverified');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+    const updated = freshAttempt(attempt.id);
+    expect(updated.verificationCandidateSource).toBe('operator');
+    expect(updated.verificationCandidateSha256).toBe(operatorSpec.verificationCandidateSha256);
+  });
+
+  it('runs an approved spec and completes the attempt when the head is unchanged', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const result = await verifyRemediationOnce(attempt, task, options());
     expect(result).toBe('verification_passed');
     const updated = getAttempt(attempt.id);
@@ -159,8 +211,54 @@ describe('verifyRemediationOnce', () => {
     expect(command?.specScript).toBe('echo ok');
   });
 
+  it('stays verifying when the PR head moved during a passing verification', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
+    const opts = options();
+    (opts.github.getPullRequest as ReturnType<typeof vi.fn>).mockResolvedValue(
+      prResponse('head-2')
+    );
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    const updated = freshAttempt(attempt.id);
+    expect(updated.state).toBe('verifying');
+    expect(updated.prHeadSha).toBe('head-2');
+    const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
+    expect(command).toMatchObject({ status: 'passed', headSha: 'head-1' });
+  });
+
+  it('stays verifying when the post-pass PR re-check fails', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
+    const opts = options();
+    (opts.github.getPullRequest as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'));
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    expect(freshAttempt(attempt.id).state).toBe('verifying');
+  });
+
+  it('repairs completion idempotently from a recorded passed row', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const approved = approveIssueSpec(attempt.id, 'echo ok');
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'head-1',
+      kind: 'command',
+      status: 'passed',
+      specShell: approved.shell,
+      specScript: approved.script,
+      specSha256: approved.sha256,
+    });
+    const opts = options();
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+    expect(freshAttempt(attempt.id)).toMatchObject({ state: 'completed', outcome: 'succeeded' });
+  });
+
   it('stays verifying and records failed when the command fails', async () => {
     const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const opts = options();
     (opts.runCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'failed',
@@ -178,6 +276,7 @@ describe('verifyRemediationOnce', () => {
 
   it('records error without completing the attempt', async () => {
     const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const opts = options();
     (opts.runCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'error',
@@ -274,8 +373,8 @@ describe('verifyRemediationOnce', () => {
 
   it('requires re-approval when the issue section changes after approval', async () => {
     const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const opts = options();
-    await verifyRemediationOnce(attempt, task, opts);
     expect(approvalStatus(freshAttempt(attempt.id))).toBe('approved');
     // The issue body changed to a different script.
     (opts.github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -293,6 +392,7 @@ describe('verifyRemediationOnce', () => {
 
   it('is idempotent per head and re-runs for a new head', async () => {
     const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const opts = options();
     (opts.runCommand as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({
@@ -319,6 +419,9 @@ describe('verifyRemediationOnce', () => {
     expect(opts.runCommand).toHaveBeenCalledTimes(1);
 
     // New head -> new run with the same approved spec, completing the attempt.
+    (opts.github.getPullRequest as ReturnType<typeof vi.fn>).mockResolvedValue(
+      prResponse('head-2')
+    );
     recordPullRequest(attempt.id, {
       prUrl: 'https://github.com/owner/repo/pull/12',
       prNumber: 12,
@@ -336,6 +439,7 @@ describe('verifyRemediationOnce', () => {
 
   it('records checkout_failed errors without running the command', async () => {
     const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
     const opts = options();
     (opts.checkout as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('git exploded'));
     expect(await verifyRemediationOnce(attempt, task, opts)).toBe('verification_error');

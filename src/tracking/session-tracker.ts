@@ -249,7 +249,10 @@ export async function trackAttemptOnce(
   if (current?.state === 'verifying' && opts.verification !== undefined && !deferred) {
     const verificationDecision = await verifyRemediationOnce(current, task, {
       ...opts.verification,
-      github: opts.github as Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>,
+      github: opts.github as Pick<
+        GitHubClient,
+        'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
+      >,
       logger: opts.logger,
       db,
     });

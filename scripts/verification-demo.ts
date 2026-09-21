@@ -25,9 +25,11 @@ const logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'> = {
 };
 
 async function main(): Promise<number> {
-  const { values } = parseArgs({ options: { attempt: { type: 'string' } } });
+  const { values } = parseArgs({
+    options: { attempt: { type: 'string' }, rerun: { type: 'boolean', default: false } },
+  });
   if (!values.attempt) {
-    console.error('Usage: pnpm demo:verification --attempt <id>');
+    console.error('Usage: pnpm demo:verification --attempt <id> [--rerun]');
     return 1;
   }
   runMigrations();
@@ -72,6 +74,7 @@ async function main(): Promise<number> {
       setupTimeoutMs: config.verificationSetupTimeoutMs,
       checkoutTimeoutMs: config.verificationCheckoutTimeoutMs,
       maxOutputBytes: config.verificationMaxOutputBytes,
+      rerun: values.rerun,
     });
     console.log(`Decision: ${decision}`);
     console.log('Attempt:');

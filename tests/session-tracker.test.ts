@@ -3,6 +3,7 @@ import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
 import { DevinApiError, type SessionResponse } from '../src/devin/client.js';
 import {
+  approveVerificationSpec,
   createAttempt,
   getAttempt,
   markDispatching,
@@ -11,8 +12,10 @@ import {
   markVerifying,
   recordPullRequest,
   listVerifications,
+  setVerificationCandidate,
   upsertTask,
 } from '../src/db/task-state.js';
+import { hashVerificationSpec } from '../src/verification/spec.js';
 import { GitHubApiError, type GitHubPullRequest } from '../src/github/client.js';
 import { runTrackingOnce, toEpochMs } from '../src/tracking/session-tracker.js';
 
@@ -357,6 +360,16 @@ describe('independent verification integration', () => {
       .mockResolvedValue({ state: 'success', total_count: 0, statuses: [] }),
   });
 
+  const approveIssueSpec = (attemptId: number) => {
+    const spec = {
+      shell: 'bash' as const,
+      script: 'echo ok',
+      sha256: hashVerificationSpec('bash', 'echo ok'),
+    };
+    setVerificationCandidate(attemptId, spec, 'issue_verification_section');
+    approveVerificationSpec(attemptId, spec.sha256, 'issue_verification_section');
+  };
+
   it('runs verification for a verifying attempt with a refreshed PR', async () => {
     const { attempt } = activeAttempt(20);
     markRunning(attempt.id);
@@ -367,6 +380,7 @@ describe('independent verification integration', () => {
       prHeadSha: 'sha-1',
     });
     markVerifying(attempt.id);
+    approveIssueSpec(attempt.id);
 
     const result = await runTrackingOnce({
       devin: {
@@ -421,6 +435,7 @@ describe('independent verification integration', () => {
       prHeadSha: 'sha-1',
     });
     markVerifying(attempt.id);
+    approveIssueSpec(attempt.id);
 
     const result = await runTrackingOnce({
       devin: {

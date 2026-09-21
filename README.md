@@ -48,7 +48,8 @@ Issues can carry a human-approved verification command in a
     ```
 
 The block's content is hashed (sha256) and pinned per attempt; only the
-approved spec ever executes. If the section is later edited, the new spec
+approved spec ever executes. A spec is pre-approved only when it is present
+in the issue body at dispatch time — a section added or edited afterwards
 becomes `pending_approval` until an operator runs
 `pnpm verification:approve --attempt <id> --spec-hash <sha256>`
 (inspect with `pnpm verification:show --attempt <id>`, propose a spec with
@@ -212,6 +213,13 @@ pnpm demo:tracking -- --attempt <id>
 
 See [docs/evidence/issue-11-session-pr-lifecycle.md](docs/evidence/issue-11-session-pr-lifecycle.md)
 for live-run evidence.
+
+One independent verification pass for a single `verifying` attempt (Issue #13)
+can be triggered with:
+
+```bash
+pnpm demo:verification --attempt <id>          # append [--rerun] to re-execute even after a recorded result
+```
 
 ### Devin API smoke test (Issue #5)
 

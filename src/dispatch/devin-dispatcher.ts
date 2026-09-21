@@ -5,15 +5,18 @@ import type { GitHubClient, GitHubIssue } from '../github/client.js';
 import { getDb } from '../db/client.js';
 import type { Attempt, Task } from '../db/schema.js';
 import {
+  approveVerificationSpec,
   claimAttemptForDispatch,
   completeAttempt,
   findPendingAttempts,
   markSessionCreated,
   releaseDispatchClaim,
+  setVerificationCandidate,
   type Db,
 } from '../db/task-state.js';
 import { isEligibleIssue } from '../intake/github-intake.js';
 import { structuredOutputJsonSchema } from '../devin/structured-output.js';
+import { parseVerificationSpec } from '../verification/spec.js';
 
 export type DispatchDecision =
   | 'dispatched'
@@ -178,6 +181,12 @@ export async function dispatchAttempt(
       'Devin session created but could not be persisted; attempt left in dispatching for reconciliation'
     );
     return 'session_persist_failed';
+  }
+
+  const specResult = parseVerificationSpec(issue.body);
+  if (specResult.ok) {
+    setVerificationCandidate(attempt.id, specResult.spec, 'issue_verification_section', db);
+    approveVerificationSpec(attempt.id, specResult.spec.sha256, 'issue_verification_section', db);
   }
 
   opts.logger.info(

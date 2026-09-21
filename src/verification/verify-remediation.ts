@@ -1,13 +1,13 @@
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import type { GitHubClient } from '../github/client.js';
+import { derivePrState, type GitHubClient } from '../github/client.js';
 import type { Attempt, Task, Verification } from '../db/schema.js';
 import { getDb } from '../db/client.js';
 import {
-  approveVerificationSpec,
   completeAttempt,
   findLatestVerification,
   getAttempt,
+  recordPullRequest,
   recordVerification,
   setVerificationCandidate,
   type Db,
@@ -27,7 +27,7 @@ export type RemediationVerificationDecision =
   | 'verification_skipped';
 
 export interface VerifyRemediationOptions {
-  github: Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>;
+  github: Pick<GitHubClient, 'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
   workspaceRoot: string;
@@ -35,6 +35,8 @@ export interface VerifyRemediationOptions {
   setupTimeoutMs: number;
   checkoutTimeoutMs: number;
   maxOutputBytes: number;
+  /** Re-execute the approved spec even if a passed/failed row already exists for this head. */
+  rerun?: boolean;
   runCommand?: typeof runVerificationCommand;
   checkout?: typeof checkoutExactSha;
   resolveAdapter?: typeof resolveSetupAdapter;
@@ -85,6 +87,7 @@ export async function verifyRemediationOnce(
     return 'verification_skipped';
   }
   const headSha = attempt.prHeadSha;
+  const prNumber = attempt.prNumber;
 
   try {
     const checkRuns = await opts.github.listCheckRuns(task.repoOwner, task.repoName, headSha);
@@ -120,9 +123,6 @@ export async function verifyRemediationOnce(
   }
 
   const latestCommand = findLatestVerification(attempt.id, headSha, 'command', db);
-  if (latestCommand && (latestCommand.status === 'passed' || latestCommand.status === 'failed')) {
-    return decisionFor(latestCommand.status);
-  }
 
   let issueBody: string | null | undefined;
   try {
@@ -138,13 +138,14 @@ export async function verifyRemediationOnce(
 
   const issueSpec = parseVerificationSpec(issueBody);
   if (issueSpec.ok) {
-    setVerificationCandidate(attempt.id, issueSpec.spec, 'issue_verification_section', db);
-    let current = getAttempt(attempt.id, db);
-    if (current && current.verificationApprovedSha256 === null) {
-      approveVerificationSpec(attempt.id, issueSpec.spec.sha256, 'issue_verification_section', db);
-      current = getAttempt(attempt.id, db);
+    const current = getAttempt(attempt.id, db) ?? attempt;
+    if (
+      current.verificationCandidateSource !== 'operator' &&
+      current.verificationCandidateSha256 !== issueSpec.spec.sha256
+    ) {
+      setVerificationCandidate(attempt.id, issueSpec.spec, 'issue_verification_section', db);
     }
-    attempt = current ?? attempt;
+    attempt = getAttempt(attempt.id, db) ?? current;
   } else {
     attempt = getAttempt(attempt.id, db) ?? attempt;
     if (attempt.verificationCandidateSha256 === null) {
@@ -217,8 +218,24 @@ export async function verifyRemediationOnce(
   if (!approved) {
     return 'verification_skipped';
   }
+  if (
+    !opts.rerun &&
+    latestCommand &&
+    (latestCommand.status === 'passed' || latestCommand.status === 'failed') &&
+    latestCommand.specSha256 === approved.sha256
+  ) {
+    if (latestCommand.status === 'passed' && attempt.state === 'verifying') {
+      completeAttempt(
+        attempt.id,
+        'succeeded',
+        { reason: `independent_verification_passed: ${headSha}` },
+        db
+      );
+    }
+    return decisionFor(latestCommand.status);
+  }
 
-  const workspaceDir = path.join(
+  const workspaceDir = path.resolve(
     opts.workspaceRoot,
     `${task.repoOwner.toLowerCase()}__${task.repoName.toLowerCase()}`
   );
@@ -292,36 +309,70 @@ export async function verifyRemediationOnce(
     maxOutputBytes: opts.maxOutputBytes,
   });
 
+  let headStillCurrent = result.status === 'passed';
+  if (result.status === 'passed') {
+    try {
+      const pr = await opts.github.getPullRequest(task.repoOwner, task.repoName, prNumber);
+      if (pr.head.sha !== headSha) {
+        headStillCurrent = false;
+        recordPullRequest(
+          attempt.id,
+          {
+            prUrl: pr.html_url,
+            prNumber: pr.number,
+            prState: derivePrState(pr),
+            prHeadSha: pr.head.sha,
+          },
+          db
+        );
+        opts.logger.warn(
+          { attempt_id: attempt.id, verified_head_sha: headSha, current_head_sha: pr.head.sha },
+          'Pull request head changed during verification; deferring completion to the next poll'
+        );
+      }
+    } catch (error: unknown) {
+      headStillCurrent = false;
+      opts.logger.warn(
+        { err: error, attempt_id: attempt.id, head_sha: headSha },
+        'Pull request re-check failed after a passing verification; deferring completion to the next poll'
+      );
+    }
+  }
+
   const summary = boundSummary(
     `$ ${approved.script}\nadapter=${adapter.name} setup_ms=${String(setupDurationMs)}\nexit_code=${String(result.exitCode)}\n${result.output}`,
     opts.maxOutputBytes
   );
-  const row = recordVerification(
-    {
-      attemptId: attempt.id,
-      headSha,
-      kind: 'command',
-      status: result.status,
-      reason: result.reason ?? null,
-      specShell: approved.shell,
-      specScript: approved.script,
-      specSha256: approved.sha256,
-      exitCode: result.exitCode,
-      evidenceSummary: summary,
-      startedAt: result.startedAt,
-      finishedAt: result.finishedAt,
-    },
-    db
-  );
+  const completeHead = headStillCurrent;
+  const row = db.transaction((tx) => {
+    const recorded = recordVerification(
+      {
+        attemptId: attempt.id,
+        headSha,
+        kind: 'command',
+        status: result.status,
+        reason: result.reason ?? null,
+        specShell: approved.shell,
+        specScript: approved.script,
+        specSha256: approved.sha256,
+        exitCode: result.exitCode,
+        evidenceSummary: summary,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+      },
+      tx
+    );
+    if (result.status === 'passed' && completeHead) {
+      completeAttempt(
+        attempt.id,
+        'succeeded',
+        { reason: `independent_verification_passed: ${headSha}` },
+        tx
+      );
+    }
+    return recorded;
+  });
   logRow(opts.logger, row);
 
-  if (result.status === 'passed') {
-    completeAttempt(
-      attempt.id,
-      'succeeded',
-      { reason: `independent_verification_passed: ${headSha}` },
-      db
-    );
-  }
   return decisionFor(result.status);
 }
