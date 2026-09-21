@@ -29,6 +29,10 @@ function normalizeIdentity(input: TaskIdentityInput): TaskIdentityInput {
   };
 }
 
+function normalizePullRequestUrl(url: string): string {
+  return url.replace(/\/+$/, '').toLowerCase();
+}
+
 function identityWhere(input: TaskIdentityInput) {
   const identity = normalizeIdentity(input);
   return and(
@@ -290,7 +294,8 @@ export function recordPullRequest(
   const attempt = requireAttempt(attemptId, db);
   if (
     (attempt.prNumber !== null && attempt.prNumber !== input.prNumber) ||
-    (attempt.prNumber === null && attempt.prUrl !== null && attempt.prUrl !== input.prUrl)
+    (attempt.prUrl !== null &&
+      normalizePullRequestUrl(attempt.prUrl) !== normalizePullRequestUrl(input.prUrl))
   ) {
     throw new PullRequestMismatchError(attemptId);
   }

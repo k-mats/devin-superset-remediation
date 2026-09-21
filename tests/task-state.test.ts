@@ -132,15 +132,15 @@ describe('task state repository', () => {
     if (!rawDb) throw new Error('Raw database was not initialized');
     rawDb
       .prepare('UPDATE attempts SET pr_url = ?, pr_number = ? WHERE id = ?')
-      .run('https://github.com/owner/repo/pull/42/', 42, attempt.id);
+      .run('https://github.com/Acme/Widget/pull/42/', 42, attempt.id);
 
     const refreshed = recordPullRequest(attempt.id, {
-      prUrl: 'https://github.com/owner/repo/pull/42',
+      prUrl: 'https://github.com/acme/widget/pull/42',
       prNumber: 42,
       prState: 'open',
       prHeadSha: 'abc',
     });
-    expect(refreshed.prUrl).toBe('https://github.com/owner/repo/pull/42');
+    expect(refreshed.prUrl).toBe('https://github.com/acme/widget/pull/42');
     expect(() =>
       recordPullRequest(attempt.id, {
         prUrl: 'https://github.com/owner/repo/pull/43',
@@ -151,16 +151,33 @@ describe('task state repository', () => {
     ).toThrow(PullRequestMismatchError);
     completeAttempt(attempt.id, 'succeeded');
 
+    const repositoryChanged = createAttempt(task.id);
+    markDispatching(repositoryChanged.id);
+    markSessionCreated(repositoryChanged.id, { devinSessionId: 'repository-change-session' });
+    markRunning(repositoryChanged.id);
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ? WHERE id = ?')
+      .run('https://github.com/other/project/pull/42/', 42, repositoryChanged.id);
+    expect(() =>
+      recordPullRequest(repositoryChanged.id, {
+        prUrl: 'https://github.com/acme/widget/pull/42',
+        prNumber: 42,
+        prState: 'open',
+        prHeadSha: 'ghi',
+      })
+    ).toThrow(PullRequestMismatchError);
+    completeAttempt(repositoryChanged.id, 'succeeded');
+
     const urlOnly = createAttempt(task.id);
     markDispatching(urlOnly.id);
     markSessionCreated(urlOnly.id, { devinSessionId: 'url-only-session' });
     completeAttempt(urlOnly.id, 'succeeded');
     rawDb
       .prepare('UPDATE attempts SET pr_url = ?, pr_number = NULL WHERE id = ?')
-      .run('https://github.com/owner/repo/pull/42/', urlOnly.id);
+      .run('https://github.com/other/project/pull/42/', urlOnly.id);
     expect(() =>
       recordPullRequest(urlOnly.id, {
-        prUrl: 'https://github.com/owner/repo/pull/42',
+        prUrl: 'https://github.com/acme/widget/pull/42',
         prNumber: 42,
         prState: 'open',
         prHeadSha: 'ghi',
