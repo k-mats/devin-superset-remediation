@@ -44,7 +44,7 @@ export function loadConfig(): Config {
     nodeEnv: process.env['NODE_ENV'],
     databasePath: process.env['DATABASE_PATH'],
     logLevel: process.env['LOG_LEVEL'],
-    githubWebhookSecret: process.env['GITHUB_WEBHOOK_SECRET'],
+    githubWebhookSecret: envValue('GITHUB_WEBHOOK_SECRET'),
     githubToken: envValue('GITHUB_TOKEN'),
     githubRepoOwner: envValue('GITHUB_REPO_OWNER'),
     githubRepoName: envValue('GITHUB_REPO_NAME'),

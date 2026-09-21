@@ -19,7 +19,8 @@ devin-superset-remediation/
 │   ├── github/               # GitHub API
 │   │   └── client.ts         # GitHub issue API client
 │   ├── intake/               # GitHub issue intake
-│   │   └── github-intake.ts  # Issue polling and task creation (Issue #7)
+│   │   ├── github-intake.ts  # Issue polling and task creation (Issue #7)
+│   │   └── github-webhook.ts # Signed webhook verification and scope filter feeding intakeIssue (Issue #22)
 │   ├── outcome/              # Session outcome collection
 │   │   ├── collect-structured-output.ts # One-shot structured output collection (Issue #10)
 │   │   └── verify-pull-request.ts # Agent PR verification (Issue #11)
@@ -43,7 +44,8 @@ devin-superset-remediation/
 │   │   └── verify-remediation.ts # Verification orchestration per poll
 │   └── routes/               # Fastify routes
 │       ├── health.ts         # Health check endpoint
-│       └── report.ts         # JSON report and HTML dashboard (Issue #15)
+│       ├── report.ts         # JSON report and HTML dashboard (Issue #15)
+│       └── github-webhook.ts # POST /webhooks/github with route-scoped raw-body parser (Issue #22)
 ├── scripts/
 │   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
 │   ├── demo-db-env.ts        # Isolate the state-restart demo database
@@ -63,6 +65,7 @@ devin-superset-remediation/
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
+│   ├── github-webhook.test.ts # Signed webhook fixtures, replay and polling convergence tests
 │   ├── database.test.ts      # Database integration test
 │   ├── task-state.test.ts    # Persistent task state tests
 │   ├── session-tracker.test.ts # Session and PR tracking tests
