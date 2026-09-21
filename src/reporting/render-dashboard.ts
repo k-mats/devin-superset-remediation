@@ -101,7 +101,7 @@ function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
       : `<ul>${attempt.verification.stale
           .map(
             (verification) =>
-              `<li>stale (head <code title="${escapeHtml(verification.headSha)}">${escapeHtml(verification.headSha.slice(0, 12))}</code>): ${renderVerificationEvidence(verification)}</li>`
+              `<li>stale ${escapeHtml(verification.kind)} (head <code title="${escapeHtml(verification.headSha)}">${escapeHtml(verification.headSha.slice(0, 12))}</code>): ${renderVerificationEvidence(verification)}</li>`
           )
           .join('')}</ul>`;
   return `<li>attempt #${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} / ${escapeHtml(attempt.reason)} · ${renderSessionEvidence(attempt)} · ${renderPrEvidence(attempt)} · command: ${renderVerificationEvidence(attempt.verification.command)} · checks: ${renderVerificationEvidence(attempt.verification.githubChecks)}${stale}</li>`;
@@ -175,6 +175,9 @@ export function renderDashboard(report: Report): string {
       const issueHref = safeHref(row.issueUrl);
       const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(row.issueNumber)}</a>` : escapeHtml(row.issueUrl)} ${escapeHtml(row.title ?? '(untitled)')}`;
       const current = row.current;
+      if (current === null) {
+        return `<tr><td>${issue}</td><td><strong>${escapeHtml(row.state)}</strong><small>${escapeHtml(row.reason)}</small></td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
+      }
       const attemptHistory = renderAttemptHistory(row.history);
       const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
       const timestamps = `<small>discovered ${escapeHtml(formatTime(row.discoveredAt))}<br>dispatched ${escapeHtml(formatTime(current.timestamps.dispatchedAt))}<br>session created ${escapeHtml(formatTime(current.timestamps.sessionCreatedAt))}<br>completed ${escapeHtml(formatTime(current.timestamps.completedAt))}<br>terminal ${escapeHtml(formatTime(current.timestamps.terminalAt))}<br>verified ${escapeHtml(formatTime(current.timestamps.verifiedAt))}</small>`;

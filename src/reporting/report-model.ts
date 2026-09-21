@@ -183,7 +183,7 @@ export interface LedgerRow {
   reason: string;
   bucket: TaskBucket;
   attemptCount: number;
-  current: LedgerAttemptEvidence;
+  current: LedgerAttemptEvidence | null;
   history: LedgerAttemptEvidence[];
   discoveredAt: number;
   lastUpdatedAt: number;
@@ -437,8 +437,27 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
 
   for (const task of taskRows) {
     const attemptRows = listAttempts(task.id, db);
+    const issueUrl = `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`;
     if (attemptRows.length === 0) {
       tasksWithoutAttempts += 1;
+      ledgerRows.push({
+        taskId: task.id,
+        repoOwner: task.repoOwner,
+        repoName: task.repoName,
+        issueNumber: task.issueNumber,
+        issueUrl,
+        title: task.title,
+        state: 'QUEUED',
+        reason: 'task_without_attempt',
+        bucket: 'active',
+        attemptCount: 0,
+        current: null,
+        history: [],
+        discoveredAt: task.createdAt,
+        lastUpdatedAt: task.updatedAt,
+        terminalAt: null,
+        verifiedAt: null,
+      });
       continue;
     }
     const currentAttempt = latestAttempt(attemptRows);
@@ -465,7 +484,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       repoOwner: task.repoOwner,
       repoName: task.repoName,
       issueNumber: task.issueNumber,
-      issueUrl: `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`,
+      issueUrl,
       title: task.title,
       state: currentProjection.state,
       reason: currentProjection.reason,

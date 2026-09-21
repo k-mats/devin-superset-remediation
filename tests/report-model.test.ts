@@ -20,6 +20,7 @@ import {
   upsertTask,
 } from '../src/db/task-state.js';
 import { bucketForState, buildReport, TASK_BUCKETS } from '../src/reporting/report-model.js';
+import { renderDashboard } from '../src/reporting/render-dashboard.js';
 import { NORMALIZED_TASK_STATES } from '../src/tracking/normalized-task-state.js';
 import { hashVerificationSpec } from '../src/verification/spec.js';
 
@@ -433,16 +434,16 @@ describe('report model', () => {
       });
 
       const row = buildReport({ now: Date.now() }).ledger[0];
-      expect(row?.state).toBe('VERIFIED');
-      expect(row?.current.verification.command?.status).toBe('passed');
-      expect(row?.current.verification.command?.specSha256).toBe(
-        row?.current.approval.approvedSha256
-      );
-      expect(row?.current.verification.command?.exitCode).toBe(0);
-      expect(row?.current.verification.githubChecks?.status).toBe('passed');
-      expect(row?.current.approval.approvedBy).toBe('operator');
-      expect(row?.current.approval.approvedAt).not.toBeNull();
-      expect(row?.current.acusConsumed).toBe(2.5);
+      if (row === undefined || row.current === null) throw new Error('Ledger attempt is missing');
+      const current = row.current;
+      expect(row.state).toBe('VERIFIED');
+      expect(current.verification.command?.status).toBe('passed');
+      expect(current.verification.command?.specSha256).toBe(current.approval.approvedSha256);
+      expect(current.verification.command?.exitCode).toBe(0);
+      expect(current.verification.githubChecks?.status).toBe('passed');
+      expect(current.approval.approvedBy).toBe('operator');
+      expect(current.approval.approvedAt).not.toBeNull();
+      expect(current.acusConsumed).toBe(2.5);
     });
 
     it('separates verification of a superseded PR head as stale evidence', () => {
@@ -457,13 +458,16 @@ describe('report model', () => {
       });
 
       const row = buildReport({ now: Date.now() }).ledger[0];
-      expect(row?.current.verification.command).toBeNull();
-      expect(row?.current.verification.stale[0]).toMatchObject({
+      if (row === undefined || row.current === null) throw new Error('Ledger attempt is missing');
+      const current = row.current;
+      expect(current.verification.command).toBeNull();
+      expect(current.verification.stale[0]).toMatchObject({
         headSha: 'head-a',
         status: 'passed',
       });
-      expect(row?.state).toBe('PR_OPEN');
-      expect(row?.reason).toBe('verified_head_superseded');
+      expect(row.state).toBe('PR_OPEN');
+      expect(row.reason).toBe('verified_head_superseded');
+      expect(renderDashboard(buildReport({ now: Date.now() }))).toContain('stale command');
     });
 
     it('preserves unknown ACU as null and omits raw verification payloads', () => {
@@ -480,7 +484,8 @@ describe('report model', () => {
 
       const report = buildReport({ now: Date.now() });
       const row = report.ledger[0];
-      expect(row?.current.acusConsumed).toBeNull();
+      if (row === undefined || row.current === null) throw new Error('Ledger attempt is missing');
+      expect(row.current.acusConsumed).toBeNull();
       expect(JSON.stringify(row)).not.toContain('"acusConsumed":0');
       expect(JSON.stringify(report)).not.toContain('SECRET_SCRIPT_BODY');
       expect(JSON.stringify(report)).not.toContain('RAW_OUTPUT_SENTINEL');
@@ -542,17 +547,36 @@ describe('report model', () => {
       markRunning(second.id);
 
       const row = buildReport({ now: Date.now() }).ledger[0];
-      expect(row?.current.attemptNumber).toBe(2);
-      expect(row?.history).toHaveLength(2);
-      expect(row?.history[0]?.acusConsumed).toBe(1.5);
+      if (row === undefined || row.current === null) throw new Error('Ledger attempt is missing');
+      expect(row.current.attemptNumber).toBe(2);
+      expect(row.history).toHaveLength(2);
+      expect(row.history[0]?.acusConsumed).toBe(1.5);
     });
 
     it('keeps ledger order aligned with task rows', () => {
       const task = makeTask(38);
+      const taskWithoutAttempt = upsertTask({
+        repoOwner: 'owner',
+        repoName: 'repo',
+        issueNumber: 39,
+        title: 'No attempt',
+      });
       const report = buildReport({ now: Date.now() });
-      expect(report.tasks.length).toBe(report.ledger.length);
-      expect(report.ledger.map((row) => row.taskId)).toEqual(report.tasks.map((row) => row.taskId));
-      expect(report.ledger[0]?.taskId).toBe(task.id);
+      expect(report.ledger.length).toBe(report.tasks.length + report.tasksWithoutAttempts);
+      expect(report.ledger.filter((row) => row.current !== null).map((row) => row.taskId)).toEqual(
+        report.tasks.map((row) => row.taskId)
+      );
+      expect(report.tasks[0]?.taskId).toBe(task.id);
+      expect(report.ledger.find((row) => row.taskId === taskWithoutAttempt.id)).toMatchObject({
+        state: 'QUEUED',
+        reason: 'task_without_attempt',
+        bucket: 'active',
+        attemptCount: 0,
+        current: null,
+        history: [],
+        terminalAt: null,
+        verifiedAt: null,
+      });
     });
   });
 });
