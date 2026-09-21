@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import path from 'node:path';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { config } from '../src/config.js';
-import { attempts, tasks, type Attempt, type Task } from '../src/db/schema.js';
+import { attempts, tasks, verifications, type Attempt, type Task } from '../src/db/schema.js';
 import { GitHubApiError, type GitHubIssue } from '../src/github/client.js';
 import type { CreateSessionRequest, SessionResponse } from '../src/devin/client.js';
 
@@ -118,6 +118,7 @@ describe('Devin dispatcher', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });
@@ -589,6 +590,16 @@ describe('prompt and tag builders', () => {
       agentRisks: null,
       needsHumanReason: null,
       structuredOutputAcceptedAt: null,
+      verificationCandidateShell: null,
+      verificationCandidateScript: null,
+      verificationCandidateSha256: null,
+      verificationCandidateSource: null,
+      verificationCandidateUpdatedAt: null,
+      verificationApprovedShell: null,
+      verificationApprovedScript: null,
+      verificationApprovedSha256: null,
+      verificationApprovedAt: null,
+      verificationApprovedBy: null,
     } satisfies Attempt;
 
     const prompt = buildSessionPrompt(task, issue({ body: null }), attempt);

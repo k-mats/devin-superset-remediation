@@ -84,3 +84,34 @@ describe('configuration', () => {
     delete process.env['DEVIN_SESSION_STALE_WARN_MS'];
   });
 });
+
+describe('verification configuration', () => {
+  const keys = [
+    'VERIFICATION_ENABLED',
+    'VERIFICATION_WORKSPACE_ROOT',
+    'VERIFICATION_COMMAND_TIMEOUT_MS',
+    'VERIFICATION_SETUP_TIMEOUT_MS',
+    'VERIFICATION_CHECKOUT_TIMEOUT_MS',
+    'VERIFICATION_MAX_OUTPUT_BYTES',
+  ] as const;
+
+  afterEach(() => {
+    for (const key of keys) Reflect.deleteProperty(process.env, key);
+  });
+
+  it('defaults to enabled with documented timeouts', () => {
+    for (const key of keys) Reflect.deleteProperty(process.env, key);
+    const config = loadConfig();
+    expect(config.verificationEnabled).toBe(true);
+    expect(config.verificationWorkspaceRoot).toBe('./data/verification');
+    expect(config.verificationCommandTimeoutMs).toBe(900_000);
+    expect(config.verificationSetupTimeoutMs).toBe(1_800_000);
+    expect(config.verificationCheckoutTimeoutMs).toBe(300_000);
+    expect(config.verificationMaxOutputBytes).toBe(16_384);
+  });
+
+  it.each(['false', '0'])('treats VERIFICATION_ENABLED=%s as disabled', (value) => {
+    process.env['VERIFICATION_ENABLED'] = value;
+    expect(loadConfig().verificationEnabled).toBe(false);
+  });
+});

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
-import { attempts, tasks } from '../src/db/schema.js';
+import { attempts, tasks, verifications } from '../src/db/schema.js';
 import type { DevinClient, SessionResponse } from '../src/devin/client.js';
 import type { StructuredOutput } from '../src/devin/structured-output.js';
 import {
@@ -65,6 +65,7 @@ describe('collectStructuredOutput', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });

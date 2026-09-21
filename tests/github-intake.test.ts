@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
-import { attempts, tasks } from '../src/db/schema.js';
+import { attempts, tasks, verifications } from '../src/db/schema.js';
 import type { GitHubIssue } from '../src/github/client.js';
 import {
   intakeIssue,
@@ -66,6 +66,7 @@ describe('GitHub intake', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });

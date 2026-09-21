@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
-import { attempts, tasks } from '../src/db/schema.js';
+import { attempts, tasks, verifications } from '../src/db/schema.js';
 import { DevinApiError, type SessionResponse } from '../src/devin/client.js';
 import {
   createAttempt,
@@ -10,6 +10,7 @@ import {
   markSessionCreated,
   markVerifying,
   recordPullRequest,
+  listVerifications,
   upsertTask,
 } from '../src/db/task-state.js';
 import { GitHubApiError, type GitHubPullRequest } from '../src/github/client.js';
@@ -66,6 +67,7 @@ describe('session tracker', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });
@@ -301,5 +303,144 @@ describe('session tracker', () => {
     );
     expect(staleWarnings).toHaveLength(1);
     expect(staleWarnings[0]?.[0]).toMatchObject({ attempt_id: running.attempt.id });
+  });
+});
+
+describe('independent verification integration', () => {
+  beforeAll(() => {
+    runMigrations();
+  });
+
+  beforeEach(() => {
+    const db = getDb();
+    db.delete(verifications).run();
+    db.delete(verifications).run();
+    db.delete(attempts).run();
+    db.delete(tasks).run();
+  });
+
+  afterAll(() => {
+    closeDb();
+  });
+
+  const verificationOpts = (overrides: Record<string, unknown> = {}) => ({
+    workspaceRoot: '/tmp/verify-tracker-test',
+    commandTimeoutMs: 5_000,
+    setupTimeoutMs: 5_000,
+    checkoutTimeoutMs: 5_000,
+    maxOutputBytes: 4096,
+    runCommand: vi.fn().mockResolvedValue({
+      status: 'passed',
+      exitCode: 0,
+      output: 'ok',
+      startedAt: 1,
+      finishedAt: 2,
+    }),
+    checkout: vi.fn().mockResolvedValue(undefined),
+    resolveAdapter: vi.fn().mockReturnValue({ name: 'noop', setup: vi.fn().mockResolvedValue({}) }),
+    ...overrides,
+  });
+
+  const githubWithVerification = () => ({
+    getPullRequest: vi.fn().mockResolvedValue(pullRequest()),
+    getIssue: vi.fn().mockResolvedValue({
+      number: 7,
+      title: 't',
+      state: 'open',
+      html_url: 'u',
+      labels: [],
+      body: '## Verification\n\n```bash\necho ok\n```\n',
+    }),
+    listCheckRuns: vi.fn().mockResolvedValue({ total_count: 0, check_runs: [] }),
+    getCombinedStatus: vi
+      .fn()
+      .mockResolvedValue({ state: 'success', total_count: 0, statuses: [] }),
+  });
+
+  it('runs verification for a verifying attempt with a refreshed PR', async () => {
+    const { attempt } = activeAttempt(20);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(attempt.id);
+
+    const result = await runTrackingOnce({
+      devin: {
+        getSession: vi.fn().mockResolvedValue(session({ status: 'exit' })),
+      },
+      github: githubWithVerification(),
+      logger: logger(),
+      staleWarnMs: 0,
+      verification: verificationOpts(),
+    });
+
+    expect(result.verificationPassed).toBe(1);
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'completed',
+      outcome: 'succeeded',
+    });
+    expect(listVerifications(attempt.id).filter((row) => row.kind === 'command')).toHaveLength(1);
+  });
+
+  it('does not run verification when verification is disabled', async () => {
+    const { attempt } = activeAttempt(21);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(attempt.id);
+
+    const result = await runTrackingOnce({
+      devin: {
+        getSession: vi.fn().mockResolvedValue(session({ status: 'exit' })),
+      },
+      github: githubWithVerification(),
+      logger: logger(),
+      staleWarnMs: 0,
+    });
+
+    expect(result.verificationPassed).toBe(0);
+    expect(getAttempt(attempt.id)?.state).toBe('verifying');
+    expect(listVerifications(attempt.id)).toHaveLength(0);
+  });
+
+  it('stays verifying when the verification command fails', async () => {
+    const { attempt } = activeAttempt(22);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(attempt.id);
+
+    const result = await runTrackingOnce({
+      devin: {
+        getSession: vi.fn().mockResolvedValue(session({ status: 'exit' })),
+      },
+      github: githubWithVerification(),
+      logger: logger(),
+      staleWarnMs: 0,
+      verification: verificationOpts({
+        runCommand: vi.fn().mockResolvedValue({
+          status: 'failed',
+          exitCode: 1,
+          output: 'bad',
+          startedAt: 1,
+          finishedAt: 2,
+        }),
+      }),
+    });
+
+    expect(result.verificationFailed).toBe(1);
+    expect(getAttempt(attempt.id)?.state).toBe('verifying');
   });
 });
