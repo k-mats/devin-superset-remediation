@@ -57,6 +57,7 @@ describe('report routes', () => {
     const response = await server.inject({ method: 'GET', url: '/dashboard' });
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.payload).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(response.payload).not.toContain('<script>alert(1)</script>');
     expect(response.payload).toContain(resolve('./test-database.db'));

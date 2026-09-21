@@ -9,6 +9,7 @@ export function reportRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/dashboard', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
     reply.type('text/html; charset=utf-8');
     return reply.code(200).send(renderDashboard(buildReport({})));
   });
