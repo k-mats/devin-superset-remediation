@@ -23,7 +23,9 @@ import {
   type VerifyRemediationOptions,
 } from '../src/verification/verify-remediation.js';
 import { approvalStatus } from '../src/verification/approval.js';
+import { SetupError } from '../src/verification/repo-setup.js';
 import type { CommandRunResult } from '../src/verification/runner.js';
+import { projectTaskState } from '../src/tracking/normalized-task-state.js';
 
 function logger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -548,6 +550,121 @@ describe('verifyRemediationOnce', () => {
     expect(updated.state).toBe('verifying');
     const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
     expect(command).toMatchObject({ status: 'passed', specSha256: approved.sha256 });
+  });
+
+  it('persists a failed github_checks row that is visible in the projection and never becomes success', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const opts = options();
+    (opts.github.listCheckRuns as ReturnType<typeof vi.fn>).mockResolvedValue({
+      total_count: 1,
+      check_runs: [{ name: 'unit', status: 'completed', conclusion: 'failure' }],
+    });
+    (opts.github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...issueWithSpec('x'),
+      body: 'no section',
+    });
+
+    expect(await verifyRemediationOnce(attempt, task, opts)).toBe('verification_unverified');
+    expect(await verifyRemediationOnce(freshAttempt(attempt.id), task, opts)).toBe(
+      'verification_unverified'
+    );
+
+    const checks = listVerifications(attempt.id).filter((r) => r.kind === 'github_checks');
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({ status: 'failed', headSha: 'head-1' });
+    expect(checks[0]?.evidenceSummary).toContain('unit');
+    expect(checks[0]?.evidenceUrl).toBe('https://github.com/owner/repo/pull/12/checks');
+    expect(opts.runCommand).not.toHaveBeenCalled();
+
+    const updated = freshAttempt(attempt.id);
+    expect(updated).toMatchObject({ state: 'verifying', outcome: null });
+    const projection = projectTaskState(updated);
+    expect(projection.state).not.toBe('VERIFIED');
+    expect(projection.raw.githubChecks).toEqual({ status: 'failed', reason: null });
+  });
+
+  it('records a failed github_checks row even when the independent command passes', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
+    const opts = options();
+    (opts.github.getCombinedStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      state: 'failure',
+      total_count: 1,
+      statuses: [{ context: 'lint', state: 'failure', target_url: 'x' }],
+    });
+
+    expect(await verifyRemediationOnce(attempt, task, opts)).toBe('verification_passed');
+
+    const rows = listVerifications(attempt.id);
+    expect(rows.find((r) => r.kind === 'github_checks')).toMatchObject({
+      status: 'failed',
+      headSha: 'head-1',
+    });
+    expect(rows.find((r) => r.kind === 'command')).toMatchObject({ status: 'passed' });
+    // Policy boundary (Issue #23): independent command verification decides VERIFIED;
+    // the failed-check evidence must stay persisted and exposed alongside it.
+    const projection = projectTaskState(freshAttempt(attempt.id));
+    expect(projection.raw.githubChecks).toEqual({ status: 'failed', reason: null });
+    expect(projection.raw.command).toMatchObject({ status: 'passed' });
+  });
+
+  it.each<[string, Error, string]>([
+    ['SetupError', new SetupError('uv_sync_failed', 'uv sync exited 1'), 'uv_sync_failed'],
+    ['unexpected error', new Error('disk full'), 'setup_failed'],
+  ])(
+    'records a setup failure (%s) as an error row and stays verifying',
+    async (_label, error, reason) => {
+      const { task, attempt } = verifyingAttempt();
+      approveIssueSpec(attempt.id, 'echo ok');
+      const opts = options({
+        resolveAdapter: vi
+          .fn()
+          .mockReturnValue({ name: 'superset', setup: vi.fn().mockRejectedValue(error) }),
+      });
+
+      expect(await verifyRemediationOnce(attempt, task, opts)).toBe('verification_error');
+      expect(opts.runCommand).not.toHaveBeenCalled();
+
+      const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
+      expect(command).toMatchObject({ status: 'error', reason, headSha: 'head-1' });
+      expect(command?.evidenceSummary).toContain('adapter=superset');
+      expect(command?.evidenceSummary).toContain(error.message);
+
+      const updated = freshAttempt(attempt.id);
+      expect(updated).toMatchObject({ state: 'verifying', outcome: null });
+      expect(projectTaskState(updated)).toMatchObject({
+        state: 'VERIFYING',
+        reason: 'command_verification_error',
+      });
+    }
+  );
+
+  it('never projects VERIFIED for a PR that was closed without merge, even after a passing run', async () => {
+    const { task, attempt } = verifyingAttempt();
+    approveIssueSpec(attempt.id, 'echo ok');
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'closed',
+      prHeadSha: 'head-1',
+    });
+    const opts = options();
+    (opts.github.getPullRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...prResponse('head-1'),
+      state: 'closed',
+    });
+
+    const result = await verifyRemediationOnce(freshAttempt(attempt.id), task, opts);
+    expect(result).toBe('verification_passed');
+
+    // The historical attempt outcome records the command result; the operator-facing
+    // normalized state is what must stay non-success for a closed PR.
+    const updated = freshAttempt(attempt.id);
+    expect(updated).toMatchObject({ state: 'completed', outcome: 'succeeded', prState: 'closed' });
+    expect(projectTaskState(updated)).toMatchObject({
+      state: 'NEEDS_HUMAN',
+      reason: 'pr_closed_without_merge',
+    });
   });
 
   it('records checkout_failed errors without running the command', async () => {
