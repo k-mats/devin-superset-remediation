@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, isNotNull, isNull, max, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, max, or } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -11,7 +11,12 @@ import {
   type AttemptState,
   tasks,
   type Task,
+  type Verification,
+  type VerificationCandidateSource,
+  type VerificationKind,
+  verifications,
 } from './schema.js';
+import type { VerificationSpec } from '../verification/spec.js';
 
 export type Db = ReturnType<typeof getDb>;
 export type DbExecutor = BaseSQLiteDatabase<'sync', RunResult, Record<string, unknown>>;
@@ -386,6 +391,146 @@ export function completeAttempt(
     },
     db
   );
+}
+
+export class VerificationSpecMismatchError extends Error {
+  constructor(attemptId: number) {
+    super(
+      `Verification spec hash does not match the current candidate for attempt ${String(attemptId)}`
+    );
+    this.name = 'VerificationSpecMismatchError';
+  }
+}
+
+export function setVerificationCandidate(
+  attemptId: number,
+  spec: VerificationSpec,
+  source: VerificationCandidateSource,
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (attempt.verificationCandidateSha256 === spec.sha256) {
+    return attempt;
+  }
+  const timestamp = Date.now();
+  const result = db
+    .update(attempts)
+    .set({
+      verificationCandidateShell: spec.shell,
+      verificationCandidateScript: spec.script,
+      verificationCandidateSha256: spec.sha256,
+      verificationCandidateSource: source,
+      verificationCandidateUpdatedAt: timestamp,
+      updatedAt: timestamp,
+    })
+    .where(eq(attempts.id, attemptId))
+    .run();
+  if (result.changes !== 1) {
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function approveVerificationSpec(
+  attemptId: number,
+  specSha256: string,
+  approvedBy: string,
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (
+    attempt.verificationCandidateSha256 === null ||
+    attempt.verificationCandidateSha256 !== specSha256
+  ) {
+    throw new VerificationSpecMismatchError(attemptId);
+  }
+  const timestamp = Date.now();
+  const result = db
+    .update(attempts)
+    .set({
+      verificationApprovedShell: attempt.verificationCandidateShell,
+      verificationApprovedScript: attempt.verificationCandidateScript,
+      verificationApprovedSha256: attempt.verificationCandidateSha256,
+      verificationApprovedAt: timestamp,
+      verificationApprovedBy: approvedBy,
+      updatedAt: timestamp,
+    })
+    .where(and(eq(attempts.id, attemptId), eq(attempts.verificationCandidateSha256, specSha256)))
+    .run();
+  if (result.changes !== 1) {
+    throw new VerificationSpecMismatchError(attemptId);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function recordVerification(
+  input: {
+    attemptId: number;
+    headSha: string;
+    kind: VerificationKind;
+    status: Verification['status'];
+    reason?: string | null;
+    specShell?: Verification['specShell'];
+    specScript?: string | null;
+    specSha256?: string | null;
+    exitCode?: number | null;
+    evidenceUrl?: string | null;
+    evidenceSummary?: string | null;
+    startedAt?: number | null;
+    finishedAt?: number | null;
+  },
+  db: DbExecutor = getDb()
+): Verification {
+  return db
+    .insert(verifications)
+    .values({
+      attemptId: input.attemptId,
+      headSha: input.headSha,
+      kind: input.kind,
+      status: input.status,
+      reason: input.reason ?? null,
+      specShell: input.specShell ?? null,
+      specScript: input.specScript ?? null,
+      specSha256: input.specSha256 ?? null,
+      exitCode: input.exitCode ?? null,
+      evidenceUrl: input.evidenceUrl ?? null,
+      evidenceSummary: input.evidenceSummary ?? null,
+      startedAt: input.startedAt ?? null,
+      finishedAt: input.finishedAt ?? null,
+      createdAt: Date.now(),
+    })
+    .returning()
+    .get();
+}
+
+export function listVerifications(attemptId: number, db: DbExecutor = getDb()): Verification[] {
+  return db
+    .select()
+    .from(verifications)
+    .where(eq(verifications.attemptId, attemptId))
+    .orderBy(asc(verifications.createdAt), asc(verifications.id))
+    .all();
+}
+
+export function findLatestVerification(
+  attemptId: number,
+  headSha: string,
+  kind: VerificationKind,
+  db: DbExecutor = getDb()
+): Verification | undefined {
+  return db
+    .select()
+    .from(verifications)
+    .where(
+      and(
+        eq(verifications.attemptId, attemptId),
+        eq(verifications.headSha, headSha),
+        eq(verifications.kind, kind)
+      )
+    )
+    .orderBy(desc(verifications.createdAt), desc(verifications.id))
+    .limit(1)
+    .get();
 }
 
 export function getTaskByIdentity(
