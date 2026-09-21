@@ -37,7 +37,8 @@ session/PR tracking are skipped (each logs a warning).
 | Group                      | Variables                                                                                                                                                                                        | Required?                               |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
 | Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                                                  | No — defaults in `.env.example` suffice |
-| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (`GITHUB_WEBHOOK_SECRET` is reserved for webhook intake, Issue #22 — unused by polling)                           | Only for real orchestration             |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL`                                                                                                                   | Only for real orchestration             |
+| Optional webhook fast path | `GITHUB_WEBHOOK_SECRET` (with `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`) — see [GitHub webhook intake](#github-webhook-intake-issue-22)                                                           | No — polling remains the fallback       |
 | Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                                                    | Only for real orchestration             |
 | Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS`, `DEVIN_DISPATCH_GRACE_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*` | No — sensible defaults                  |
 
@@ -201,6 +202,43 @@ intake pass and print the result and persisted rows with:
 ```bash
 pnpm demo:intake
 ```
+
+### GitHub webhook intake (Issue #22)
+
+`POST /webhooks/github` is an optional low-latency fast path into the same
+durable intake as polling. It is registered only when `GITHUB_WEBHOOK_SECRET`,
+`GITHUB_REPO_OWNER`, and `GITHUB_REPO_NAME` are all set (`GITHUB_TOKEN` is not
+required to receive webhooks). Otherwise startup logs one line and the route
+returns 404; polling behaviour is unchanged.
+
+Request handling, in order:
+
+1. Content type must be `application/json` (GitHub's default). Anything else,
+   including the `application/x-www-form-urlencoded` option, is rejected with 415. The route keeps the raw request bytes; JSON is parsed only after the
+   signature is verified.
+2. `X-Hub-Signature-256` must be `sha256=` followed by 64 hex characters and
+   must match HMAC-SHA256(secret, raw body) under a constant-time comparison.
+   Missing, malformed, or wrong signatures return 401 and change nothing.
+3. `X-GitHub-Event` must be `issues`, the payload `repository` must match the
+   configured owner/name (case-insensitive; the task is persisted under the
+   configured spelling), and `action` must be `opened`, `reopened`, or
+   `labeled`. Anything else is acknowledged with 200 `{ status: 'ignored' }`
+   and creates no work.
+4. The payload's `issue` is validated with the same schema polling uses and
+   passed through the same `isEligibleIssue()` → `intakeIssue()` path, so
+   replaying a delivery, or a webhook racing a poll, converges on one task and
+   one attempt exactly as repeated polling does. Malformed JSON or an
+   unexpected payload shape returns 400.
+
+`X-GitHub-Delivery` is logged for traceability only; there is no delivery
+table or webhook-specific dedup state. Dispatch still re-validates the issue
+against GitHub before any Devin session is created.
+
+To use it against a real fork: create a repository webhook for the `Issues`
+event with content type `application/json`, the same secret, and a payload URL
+reaching the service (a reverse proxy or tunnel is the operator's concern; it
+is not needed for the Docker quick start or for the test suite, which signs
+fixtures locally in `tests/github-webhook.test.ts`).
 
 ### Devin dispatch and duplicate protection (Issues #8, #9)
 

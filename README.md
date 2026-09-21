@@ -11,7 +11,10 @@ itself. Every step is persisted in SQLite so state survives restarts, and the
 result is visible at `/api/report` and `/dashboard`.
 
 **No public webhook endpoint or tunnel is required at any point** — GitHub
-intake is polling-based (webhook intake is a tracked follow-up, Issue #22).
+intake is polling-based. An optional signed webhook fast path
+(`POST /webhooks/github`, Issue #22) can be enabled with
+`GITHUB_WEBHOOK_SECRET` to lower intake latency; polling stays on as the
+reconciliation fallback either way.
 
 ## Table of contents
 
@@ -71,7 +74,7 @@ these steps is in
 ## What the system does
 
 ```
-GitHub issue labelled `devin-ready`  (polled, no webhook)
+GitHub issue labelled `devin-ready`  (polled; optional signed webhook)
         │  intake                     → task + pending attempt persisted
         ▼
 Devin session                          dispatch (at most once per task)
@@ -156,7 +159,9 @@ tracking a PR, or running a verification. Those need Path B.
    `FAILED`, or `CANCELLED`.
 
 No public webhook endpoint or tunnel is needed for any of these steps; the
-container only makes outbound HTTPS calls to GitHub and the Devin API.
+container only makes outbound HTTPS calls to GitHub and the Devin API. The
+webhook route is opt-in (see the table below) and is fully tested with
+locally signed fixtures.
 
 This path was **not** re-run for the README walkthrough. Recorded real runs
 of each stage are linked under
@@ -170,13 +175,13 @@ of each stage are linked under
 `VERIFICATION_WORKSPACE_ROOT=/app/data/verification`. `.env.example` is
 grouped the same way as this table and is safe to use unchanged.
 
-| Group           | Variables                                                                                                                                                                                                                                                                                                                                    | Required for                                                                                                                   |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Minimal         | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH`, `LOG_LEVEL`                                                                                                                                                                                                                                                                                     | Nothing — defaults in `.env.example` suffice for Path A                                                                        |
-| GitHub intake   | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (default `devin-ready`)                                                                                                                                                                                                                                       | Path B: intake, dispatch revalidation, PR tracking, GitHub check evaluation. Token needs read access to issues/PRs of the fork |
-| Devin dispatch  | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL` (default `https://api.devin.ai/v3`), `DEVIN_MAX_ACU_PER_SESSION` (5)                                                                                                                                                                                                                        | Path B: dispatch and session tracking                                                                                          |
-| Optional tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS` (60000 each; `0` disables), `DEVIN_DISPATCH_GRACE_MS` (must exceed the 30 s Devin request timeout), `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_ENABLED`, `VERIFICATION_*_TIMEOUT_MS`, `VERIFICATION_MAX_OUTPUT_BYTES` | Nothing — sensible defaults                                                                                                    |
-| Not used yet    | `GITHUB_WEBHOOK_SECRET`                                                                                                                                                                                                                                                                                                                      | Reserved for webhook intake (Issue #22); ignored by polling                                                                    |
+| Group            | Variables                                                                                                                                                                                                                                                                                                                                    | Required for                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Minimal          | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH`, `LOG_LEVEL`                                                                                                                                                                                                                                                                                     | Nothing — defaults in `.env.example` suffice for Path A                                                                        |
+| GitHub intake    | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (default `devin-ready`)                                                                                                                                                                                                                                       | Path B: intake, dispatch revalidation, PR tracking, GitHub check evaluation. Token needs read access to issues/PRs of the fork |
+| Devin dispatch   | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL` (default `https://api.devin.ai/v3`), `DEVIN_MAX_ACU_PER_SESSION` (5)                                                                                                                                                                                                                        | Path B: dispatch and session tracking                                                                                          |
+| Optional tuning  | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS` (60000 each; `0` disables), `DEVIN_DISPATCH_GRACE_MS` (must exceed the 30 s Devin request timeout), `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_ENABLED`, `VERIFICATION_*_TIMEOUT_MS`, `VERIFICATION_MAX_OUTPUT_BYTES` | Nothing — sensible defaults                                                                                                    |
+| Optional webhook | `GITHUB_WEBHOOK_SECRET` (plus `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`; no token needed)                                                                                                                                                                                                                                                     | Signed `POST /webhooks/github` fast path (Issue #22). Unset or blank → route not registered (404); polling is unaffected       |
 
 With the GitHub or Devin group missing, the corresponding poller is skipped
 and a warning is logged at startup; the HTTP endpoints keep working.
@@ -187,7 +192,7 @@ Secrets are never baked into the image and never appear in `/api/report`,
 
 | Trigger                            | Kind              | Needs credentials   | How                                                                                                                                   |
 | ---------------------------------- | ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Label an issue `devin-ready`       | **Real workflow** | GitHub + Devin      | Periodic polling inside the running service; no webhook/tunnel                                                                        |
+| Label an issue `devin-ready`       | **Real workflow** | GitHub + Devin      | Periodic polling inside the running service; optionally a signed GitHub webhook (`GITHUB_WEBHOOK_SECRET`) as a low-latency fast path  |
 | Approve a verification spec        | **Real workflow** | GitHub + Devin      | `docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>` (operator step, by design manual) |
 | Run one poller pass by hand        | Manual exercise   | GitHub and/or Devin | `pnpm demo:intake`, `pnpm demo:dispatch`, `pnpm demo:tracking`, `pnpm demo:verification --attempt <id>` (host, Node.js)               |
 | Attach an existing Devin session   | Manual exercise   | Devin               | `pnpm demo:adopt-session` — used to record evidence without re-dispatching                                                            |
@@ -274,8 +279,10 @@ credentials; the real-run stages were recorded separately as linked above.
 stop` gives 15 s; a running checkout/setup/command (timeouts up to
   5 / 30 / 15 min) may be killed. Recorded state and workspaces persist on
   the volume; a mid-run verification is not reconciled across restarts.
-- **Polling, not webhooks.** Latency is bounded by the three interval
-  settings (60 s each by default). Webhook intake is Issue #22.
+- **Polling by default.** Without the optional webhook, intake latency is
+  bounded by `GITHUB_POLL_INTERVAL_MS`; dispatch and tracking latency by the
+  other interval settings (60 s each by default). The webhook only
+  accelerates intake; it does not change dispatch or tracking cadence.
 - **Recovery gaps are tracked, not hidden.** If `createSession` fails or
   times out, the attempt stays `dispatching` and the Issue #20 reconciliation
   poller adopts the matching Devin session by its correlation tag instead of

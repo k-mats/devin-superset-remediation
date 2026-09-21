@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
 import { reportRoutes } from './routes/report.js';
+import { githubWebhookRoutes } from './routes/github-webhook.js';
 import { closeDb, runMigrations } from './db/client.js';
 import { createGitHubClientFromConfig, type GitHubClient } from './github/client.js';
 import { createDevinClientFromConfig } from './devin/client.js';
@@ -25,6 +26,27 @@ export async function buildServer() {
 
   await server.register(healthRoutes);
   await server.register(reportRoutes);
+
+  if (!config.githubWebhookSecret) {
+    server.log.info('GitHub webhook intake disabled (GITHUB_WEBHOOK_SECRET not set)');
+  } else if (!config.githubRepoOwner || !config.githubRepoName) {
+    const missing: string[] = [];
+    if (!config.githubRepoOwner) missing.push('GITHUB_REPO_OWNER');
+    if (!config.githubRepoName) missing.push('GITHUB_REPO_NAME');
+    server.log.warn(
+      { missing },
+      'GitHub webhook intake skipped because configuration is incomplete'
+    );
+  } else {
+    await server.register(githubWebhookRoutes, {
+      secret: config.githubWebhookSecret,
+      repoOwner: config.githubRepoOwner,
+      repoName: config.githubRepoName,
+      label: config.githubIntakeLabel,
+      logger: server.log,
+    });
+    server.log.info({ path: '/webhooks/github' }, 'GitHub webhook intake enabled');
+  }
 
   let githubClient: GitHubClient | undefined;
   const getGitHubClient = () => {

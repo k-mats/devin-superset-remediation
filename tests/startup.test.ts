@@ -65,6 +65,88 @@ describe('Startup on a fresh database', () => {
     }
   });
 
+  it('leaves the webhook route unregistered when no secret is configured', async () => {
+    process.env['DATABASE_PATH'] = databasePath;
+    process.env['GITHUB_WEBHOOK_SECRET'] = '';
+    process.env['GITHUB_REPO_OWNER'] = 'owner';
+    process.env['GITHUB_REPO_NAME'] = 'repo';
+    vi.resetModules();
+    const { buildServer } = await import('../src/index.js');
+    const server = await buildServer();
+
+    try {
+      await server.ready();
+      const response = await server.inject({
+        method: 'POST',
+        url: '/webhooks/github',
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      });
+      expect(response.statusCode).toBe(404);
+    } finally {
+      await server.close();
+      delete process.env['GITHUB_WEBHOOK_SECRET'];
+      delete process.env['GITHUB_REPO_OWNER'];
+      delete process.env['GITHUB_REPO_NAME'];
+    }
+  });
+
+  it('skips the webhook route when the secret is set but the repository is not', async () => {
+    process.env['DATABASE_PATH'] = databasePath;
+    process.env['GITHUB_WEBHOOK_SECRET'] = 'secret';
+    delete process.env['GITHUB_REPO_OWNER'];
+    delete process.env['GITHUB_REPO_NAME'];
+    vi.resetModules();
+    const { buildServer } = await import('../src/index.js');
+    const server = await buildServer();
+
+    try {
+      await server.ready();
+      const response = await server.inject({
+        method: 'POST',
+        url: '/webhooks/github',
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      });
+      expect(response.statusCode).toBe(404);
+    } finally {
+      await server.close();
+      delete process.env['GITHUB_WEBHOOK_SECRET'];
+    }
+  });
+
+  it('registers the signed webhook route without a GitHub token and keeps other routes intact', async () => {
+    process.env['DATABASE_PATH'] = databasePath;
+    process.env['GITHUB_WEBHOOK_SECRET'] = 'secret';
+    process.env['GITHUB_REPO_OWNER'] = 'owner';
+    process.env['GITHUB_REPO_NAME'] = 'repo';
+    delete process.env['GITHUB_TOKEN'];
+    vi.resetModules();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { buildServer } = await import('../src/index.js');
+    const server = await buildServer();
+
+    try {
+      await server.ready();
+      const unsigned = await server.inject({
+        method: 'POST',
+        url: '/webhooks/github',
+        headers: { 'content-type': 'application/json', 'x-github-event': 'issues' },
+        payload: '{}',
+      });
+      expect(unsigned.statusCode).toBe(401);
+      const report = await server.inject({ method: 'GET', url: '/api/report' });
+      expect(report.statusCode).toBe(200);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+      fetchSpy.mockRestore();
+      delete process.env['GITHUB_WEBHOOK_SECRET'];
+      delete process.env['GITHUB_REPO_OWNER'];
+      delete process.env['GITHUB_REPO_NAME'];
+    }
+  });
+
   it('stops polling before closing an idle connection', async () => {
     process.env['DATABASE_PATH'] = databasePath;
     process.env['GITHUB_POLL_INTERVAL_MS'] = '25';

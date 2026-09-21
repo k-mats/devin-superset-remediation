@@ -18,6 +18,28 @@ describe('configuration', () => {
     expect(() => loadConfig()).toThrow();
   });
 
+  describe('GitHub webhook configuration', () => {
+    const original = process.env['GITHUB_WEBHOOK_SECRET'];
+
+    afterEach(() => {
+      if (original === undefined) {
+        delete process.env['GITHUB_WEBHOOK_SECRET'];
+      } else {
+        process.env['GITHUB_WEBHOOK_SECRET'] = original;
+      }
+    });
+
+    it('treats a blank GITHUB_WEBHOOK_SECRET as unset', () => {
+      process.env['GITHUB_WEBHOOK_SECRET'] = '';
+      expect(loadConfig().githubWebhookSecret).toBeUndefined();
+    });
+
+    it('reads a configured GITHUB_WEBHOOK_SECRET', () => {
+      process.env['GITHUB_WEBHOOK_SECRET'] = 'secret';
+      expect(loadConfig().githubWebhookSecret).toBe('secret');
+    });
+  });
+
   describe('Devin dispatch configuration', () => {
     const originalDispatchInterval = process.env['DEVIN_DISPATCH_INTERVAL_MS'];
     const originalMaxAcu = process.env['DEVIN_MAX_ACU_PER_SESSION'];
