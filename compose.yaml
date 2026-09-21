@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    ports:
+      - '3000:3000'
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/orchestrator.db
+      HOST: 0.0.0.0
+      PORT: '3000'
+      VERIFICATION_WORKSPACE_ROOT: /app/data/verification
+    volumes:
+      - orchestrator-data:/app/data
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:3000/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  orchestrator-data:

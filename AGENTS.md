@@ -29,6 +29,10 @@ devin-superset-remediation/
 │   ├── reporting/
 │   │   ├── report-model.ts    # Task and attempt observability report (Issue #15)
 │   │   └── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15)
+│   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
+│   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
+│   │   ├── verification-propose.ts  # Propose a verification spec as the operator
+│   │   └── verification-approve.ts  # Approve a pending verification spec by sha256
 │   ├── verification/         # Independent remediation verification (Issue #13)
 │   │   ├── spec.ts           # Issue `## Verification` section parser and spec hashing
 │   │   ├── approval.ts       # Candidate vs approved spec status derivation
@@ -50,11 +54,11 @@ devin-superset-remediation/
 │   └── tracking-demo.ts       # Single session and PR tracking pass demo (Issue #11)
 │   ├── verification-demo.ts   # Single independent verification pass demo (Issue #13)
 │   ├── adopt-session-demo.ts  # Attach an existing Devin session to a pending attempt
-│   ├── verification-show.ts   # Inspect an attempt's verification spec and history
-│   ├── verification-approve.ts# Approve a pending verification spec by sha256
-│   └── verification-propose.ts# Propose a verification spec as the operator
+│   ├── verification-show.ts   # Wrapper → src/cli/verification-show.ts
+│   ├── verification-approve.ts# Wrapper → src/cli/verification-approve.ts
+│   └── verification-propose.ts# Wrapper → src/cli/verification-propose.ts
 ├── docs/
-│   └── evidence/             # Verification evidence artifacts
+│   └── evidence/             # Verification evidence artifacts (incl. issue-17-docker.md)
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
@@ -71,6 +75,9 @@ devin-superset-remediation/
 ├── eslint.config.mjs         # ESLint flat config
 ├── drizzle.config.ts         # Drizzle Kit configuration
 ├── .env.example              # Environment variables template
+├── Dockerfile                # Multi-stage image (build on bookworm-slim; runtime bundles git/uv/Python 3.12 + Superset native deps)
+├── compose.yaml              # docker compose service, named volume, healthcheck (Issue #17)
+├── .dockerignore             # Build-context exclusions
 └── AGENTS.md, REVIEW.md, architecture.md, product.md
 ```
 
@@ -119,6 +126,10 @@ devin-superset-remediation/
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
 - `pnpm demo:restart` - Demonstrate state recovery across process restart
+
+### Docker (Issue #17)
+
+- `docker compose up --build` - Build and run the full service (see README "Running with Docker")
 
 ## Safety Rules
 

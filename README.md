@@ -23,6 +23,131 @@ This project implements an automated system that:
 - **Linting**: ESLint 10 with typescript-eslint
 - **Formatting**: Prettier
 
+## Running with Docker (Issue #17)
+
+The whole solution is containerized: a multi-stage `Dockerfile` builds the
+TypeScript application and produces a runtime image that also bundles `git`,
+`uv`, Python 3.12, and the Superset native build dependencies
+(`pkg-config`, `default-libmysqlclient-dev`, `libldap2-dev`, `libsasl2-dev`,
+`libffi-dev`, `libssl-dev`, `gcc`, `g++`, `make`), so independent
+verification (`src/verification/`, Issue #13) runs inside the container
+unchanged — the Superset repo-setup adapter and an approved `pytest`
+command were exercised end-to-end in a recorded in-container run
+([evidence](docs/evidence/issue-17-docker.md)). The container runs as the non-root user `app` (uid 1001) and no
+secrets are baked into the image — credentials are passed only via `.env` /
+environment variables at run time.
+
+### Prerequisites
+
+- Docker Engine 20.10+ (developed against Docker 29)
+- Docker Compose v2+ (`docker compose`, developed against v5)
+
+### Clean checkout → running service
+
+```bash
+git clone https://github.com/k-mats/devin-superset-remediation.git
+cd devin-superset-remediation
+cp .env.example .env
+docker compose up --build
+```
+
+Then, in another terminal:
+
+```bash
+curl http://localhost:3000/health      # {"status":"ok",...}
+curl http://localhost:3000/ready       # {"status":"ready","database":"connected",...}
+curl http://localhost:3000/api/report  # JSON observability report
+```
+
+and open `http://localhost:3000/dashboard` for the HTML dashboard.
+
+### Environment variables
+
+`.env` is loaded via `env_file`; the compose `environment:` block pins
+`NODE_ENV=production`, `DATABASE_PATH=/app/data/orchestrator.db`, `HOST=0.0.0.0`, `PORT=3000`, and
+`VERIFICATION_WORKSPACE_ROOT=/app/data/verification` on top. With all
+credentials unset the application still starts and serves health, readiness,
+reporting, and the dashboard — only GitHub intake, Devin dispatch, and
+session/PR tracking are skipped (each logs a warning).
+
+| Group                      | Variables                                                                                                                                                              | Required?                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                        | No — defaults in `.env.example` suffice |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (`GITHUB_WEBHOOK_SECRET` is reserved for webhook intake, Issue #22 — unused by polling) | Only for real orchestration             |
+| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                          | Only for real orchestration             |
+| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*`                                 | No — sensible defaults                  |
+
+### Persistence
+
+The SQLite database lives on the named volume `orchestrator-data` mounted at
+`/app/data` (which also holds the verification workspace under
+`/app/data/verification`).
+
+- `docker compose restart` — data kept
+- `docker compose down && docker compose up -d` — data kept
+- `docker compose down -v` — **deletes** the volume and all state
+
+Verify persistence after the container is healthy:
+
+```bash
+docker compose exec app node -e "import('/app/dist/db/client.js').then(async ({runMigrations,closeDb})=>{runMigrations();const s=await import('/app/dist/db/task-state.js');const t=s.upsertTask({repoOwner:'k-mats',repoName:'superset',issueNumber:17,title:'Docker persistence check'});s.createAttempt(t.id);console.log(JSON.stringify(t));closeDb();})"
+curl -s http://localhost:3000/api/report | grep -i docker
+docker compose restart
+curl -s http://localhost:3000/api/report | grep -i docker   # still present
+```
+
+### Single-command equivalent
+
+Compose is the primary path; a plain `docker run` works too. Pass the same
+overrides that `compose.yaml` pins (`.env.example` sets `NODE_ENV=development`
+for local development, so it must be overridden explicitly here):
+
+```bash
+docker build -t devin-superset-remediation .
+docker run --rm -p 3000:3000 --env-file .env \
+  -e NODE_ENV=production -e HOST=0.0.0.0 \
+  -e DATABASE_PATH=/app/data/orchestrator.db \
+  -e VERIFICATION_WORKSPACE_ROOT=/app/data/verification \
+  -v orchestrator-data:/app/data devin-superset-remediation
+```
+
+### Operator commands inside the container
+
+The verification operator CLIs are compiled into the image under `dist/cli/`
+and run with plain `node` — no `tsx` or dev dependencies required:
+
+```bash
+docker compose exec app node dist/cli/verification-propose.js --attempt <id> --command "<cmd>"
+docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>
+docker compose exec app node dist/cli/verification-show.js --attempt <id>
+```
+
+### Trust boundary of in-container verification
+
+Independent verification runs checked-out repository / PR code **inside the
+same `app` container, as the same non-root `app` user** as the orchestrator.
+The child process environment is sanitized (no GitHub/Devin credentials), but
+the container is not a security isolation boundary between the orchestrator
+and the code under verification. In this prototype only use it with trusted
+repositories and remediation inputs; see
+[Known limitations of the verification runner](#known-limitations-of-the-verification-runner).
+
+### Graceful shutdown
+
+`docker compose stop` (or `down`) sends SIGTERM; the service closes the
+HTTP server and database cleanly before exiting. `stop_grace_period: 15s`
+gives in-flight polls time to finish. Note the demonstrated graceful
+shutdown had **no long-running verification in flight**: an in-flight
+verification (checkout / setup / command, with timeouts up to 5 / 30 / 15
+minutes) may be forcibly killed when `stop_grace_period` expires.
+Verification workspaces and results are persisted on the
+`orchestrator-data` volume, but graceful cancellation and restart
+reconciliation of an in-flight verification are not implemented yet
+(follow-up).
+
+See [docs/evidence/issue-17-docker.md](docs/evidence/issue-17-docker.md) for a
+recorded clean-checkout run.
+
 ## Development
 
 ### Prerequisites
@@ -55,23 +180,39 @@ operator runs `pnpm verification:approve --attempt <id> --spec-hash <sha256>`,
 and only the approved spec ever executes
 (inspect with `pnpm verification:show --attempt <id>`, propose a spec with
 `pnpm verification:propose --attempt <id> --command "<cmd>"`).
+The `pnpm verification:*` commands are thin wrappers around `src/cli/*`;
+the compiled equivalents live in `dist/cli/` and can be run with `node`
+inside the production container (see
+"Operator commands inside the container").
 Removing or breaking the `## Verification` section clears an issue-derived
 candidate; operator candidates are never cleared or overwritten by issue
 edits.
 
 #### Known limitations of the verification runner
 
-- **Not a security sandbox.** The approved command runs PR-head code in an
-  isolated checkout with a scrubbed environment (no application secrets), a
-  timeout, and process-group cleanup, but it still has host filesystem and
-  network access. This is accepted only because verification targets a
-  trusted public fork; before pointing the runner at untrusted repositories
-  or PR code, run it inside a container/sandbox with restricted filesystem,
-  credentials, and network.
+- **Not a security sandbox.** Independent verification executes repository /
+  PR-head code locally inside the application process's own environment —
+  under Docker that is the same `app` container and the same Unix user
+  (`app`, uid 1001) as the orchestrator itself. The child process gets a
+  sanitized environment (allow-listed variables only, no GitHub/Devin
+  credentials), a timeout, and process-group cleanup, but it shares the
+  container filesystem (including `/app/data` and the SQLite database) and
+  network with the orchestrator. This is **not** a security isolation
+  boundary; in this prototype it should only be used with trusted
+  repositories and remediation inputs (the controlled Superset fork). A
+  separate sandbox/container for verification is out of scope for Issue #17.
+  See also the trust-boundary note in [Running with Docker](#running-with-docker-issue-17).
 - **Public repositories only.** The runner clones over unauthenticated HTTPS
   with `GIT_TERMINAL_PROMPT=0`; private repositories are out of scope and
   surface as a visible `error/checkout_failed` verification row, never as
   success.
+- **No graceful cancellation of in-flight verification.** Under Docker the
+  demonstrated graceful SIGTERM shutdown covered an idle service; an
+  in-flight verification (checkout / setup / command, timeouts up to
+  5 / 30 / 15 minutes) may be forcibly killed when `stop_grace_period`
+  (15s) expires. Workspaces and recorded state persist on the volume, but
+  cancellation and restart reconciliation of a mid-run verification are
+  not implemented yet (follow-up).
 
 ### Installation
 
