@@ -703,16 +703,16 @@ describe('projectTaskState (db-backed)', () => {
     expect(projectTaskState(completed, db).state).toBe('VERIFIED');
 
     const differentSpec = { shell: 'bash' as const, script: 'echo changed' };
-    expect(() => setVerificationCandidate(attempt.id, differentSpec, 'operator', db)).toThrowError(
+    expect(() => setVerificationCandidate(attempt.id, differentSpec, 'operator', db)).toThrow(
       AttemptCompletedError
     );
-    expect(() => clearVerificationCandidate(attempt.id, {}, db)).toThrowError(
+    expect(() => clearVerificationCandidate(attempt.id, {}, db)).toThrow(AttemptCompletedError);
+    expect(() => approveVerificationSpec(attempt.id, sha, 'operator', db)).toThrow(
       AttemptCompletedError
     );
-    expect(() => approveVerificationSpec(attempt.id, sha, 'operator', db)).toThrowError(
-      AttemptCompletedError
-    );
-    expect(projectTaskState(getAttempt(attempt.id, db)!, db).state).toBe('VERIFIED');
+    const unchanged = getAttempt(attempt.id, db);
+    if (unchanged === undefined) throw new Error('attempt missing after rejected mutation');
+    expect(projectTaskState(unchanged, db).state).toBe('VERIFIED');
   });
 
   it('projects VERIFIED for a completed attempt and demotes it when the head moves', () => {
