@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  format-lint:
+    name: Format & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+
+  type-check:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm type-check
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  build-smoke:
+    name: Build & startup smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Start built application and probe /health and /ready
+        env:
+          NODE_ENV: production
+          HOST: 127.0.0.1
+          PORT: 3100
+          LOG_LEVEL: info
+          GITHUB_POLL_INTERVAL_MS: '0'
+          DEVIN_DISPATCH_INTERVAL_MS: '0'
+          DEVIN_TRACKING_INTERVAL_MS: '0'
+          VERIFICATION_ENABLED: 'false'
+        run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          export DATABASE_PATH="$workdir/smoke.db"
+          log="$workdir/app.log"
+
+          node dist/index.js >"$log" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            if kill -0 "$app_pid" 2>/dev/null; then
+              kill "$app_pid" 2>/dev/null || true
+              wait "$app_pid" 2>/dev/null || true
+            fi
+          }
+          fail() {
+            echo "::error::$1"
+            echo "--- application log ---"
+            cat "$log" || true
+            cleanup
+            exit 1
+          }
+          trap cleanup EXIT
+
+          base="http://$HOST:$PORT"
+          for _ in $(seq 1 60); do
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              fail "application process exited before becoming healthy"
+            fi
+            if curl -fsS "$base/health" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.5
+          done
+
+          curl -fsS "$base/health" || fail "GET /health failed"
+          echo
+          curl -fsS "$base/ready" || fail "GET /ready failed"
+          echo
+          echo "Startup smoke passed"
