@@ -4,7 +4,7 @@ import { derivePrState, type GitHubClient } from '../github/client.js';
 import type { Attempt, Task, Verification } from '../db/schema.js';
 import { getDb } from '../db/client.js';
 import {
-  completeAttempt,
+  completeVerifiedAttempt,
   findLatestVerification,
   getAttempt,
   recordPullRequest,
@@ -122,8 +122,29 @@ export async function verifyRemediationOnce(
   } catch (error: unknown) {
     opts.logger.warn(
       { err: error, attempt_id: attempt.id, head_sha: headSha },
-      'GitHub checks lookup failed; skipping check evaluation'
+      'GitHub checks lookup failed; recording an error row'
     );
+    const latest = findLatestVerification(attempt.id, headSha, 'github_checks', db);
+    if (latest?.status !== 'error' || latest.reason !== 'checks_lookup_failed') {
+      logRow(
+        opts.logger,
+        recordVerification(
+          {
+            attemptId: attempt.id,
+            headSha,
+            kind: 'github_checks',
+            status: 'error',
+            reason: 'checks_lookup_failed',
+            evidenceUrl: pullRequestChecksUrl(task.repoOwner, task.repoName, prNumber),
+            evidenceSummary: boundSummary(
+              error instanceof Error ? error.message : String(error),
+              opts.maxOutputBytes
+            ),
+          },
+          db
+        )
+      );
+    }
   }
 
   const latestCommand = findLatestVerification(attempt.id, headSha, 'command', db);
@@ -238,12 +259,7 @@ export async function verifyRemediationOnce(
           fresh.verificationCandidateSha256 === specSha &&
           fresh.verificationApprovedSha256 === specSha
         ) {
-          completeAttempt(
-            attempt.id,
-            'succeeded',
-            { reason: `independent_verification_passed: ${headSha}` },
-            tx
-          );
+          completeVerifiedAttempt(attempt.id, { headSha, specSha256: specSha }, tx);
         }
       });
     }
@@ -386,12 +402,7 @@ export async function verifyRemediationOnce(
       fresh.verificationCandidateSha256 === approved.sha256 &&
       fresh.verificationApprovedSha256 === approved.sha256
     ) {
-      completeAttempt(
-        attempt.id,
-        'succeeded',
-        { reason: `independent_verification_passed: ${headSha}` },
-        tx
-      );
+      completeVerifiedAttempt(attempt.id, { headSha, specSha256: approved.sha256 }, tx);
     } else if (result.status === 'passed' && completeHead) {
       opts.logger.warn(
         { attempt_id: attempt.id, head_sha: headSha, spec_sha256: approved.sha256 },

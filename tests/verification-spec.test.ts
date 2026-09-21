@@ -56,6 +56,16 @@ describe('parseVerificationSpec', () => {
     expect(result).toEqual({ ok: false, reason: 'verification_block_missing' });
   });
 
+  it('rejects an unterminated backtick fence', () => {
+    const result = parseVerificationSpec('## Verification\n\n```bash\necho ok\n');
+    expect(result).toEqual({ ok: false, reason: 'verification_block_unterminated' });
+  });
+
+  it('rejects an unterminated tilde fence', () => {
+    const result = parseVerificationSpec('# Verification\n\n~~~\necho ok\n');
+    expect(result).toEqual({ ok: false, reason: 'verification_block_unterminated' });
+  });
+
   it('accepts tilde fences', () => {
     const result = parseVerificationSpec(body('## Verification\n\n~~~sh\necho hi\n~~~\n'));
     expect(result.ok).toBe(true);

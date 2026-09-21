@@ -287,7 +287,7 @@ describe('collectStructuredOutput', () => {
       devin: {
         getSession: (sessionId: string) => {
           recordStructuredOutput(staleAttempt.id, { raw: validOutput, parsed: validOutput });
-          completeAttempt(staleAttempt.id, 'succeeded');
+          completeAttempt(staleAttempt.id, 'failed');
           return getSession(sessionId);
         },
       },
@@ -298,7 +298,7 @@ describe('collectStructuredOutput', () => {
     const stored = getAttempt(staleAttempt.id);
     expect(stored).toMatchObject({
       state: 'completed',
-      outcome: 'succeeded',
+      outcome: 'failed',
       agentOutcome: 'remediated',
     });
   });

@@ -16,6 +16,7 @@ export type ParseVerificationSpecResult =
         | 'verification_section_missing'
         | 'verification_block_missing'
         | 'verification_language_unsupported'
+        | 'verification_block_unterminated'
         | 'verification_script_empty';
     };
 
@@ -67,6 +68,9 @@ export function parseVerificationSpec(
     while (cursor < lines.length && !closing.test(lines[cursor] ?? '')) {
       content.push(lines[cursor] ?? '');
       cursor += 1;
+    }
+    if (cursor >= lines.length) {
+      return { ok: false, reason: 'verification_block_unterminated' };
     }
     const script = content.join('\n').replace(/\s+$/, '');
     if (script === '') {

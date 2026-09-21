@@ -143,6 +143,14 @@ export const attempts = sqliteTable(
       sql`${table.verificationCandidateSource} IS NULL OR ${table.verificationCandidateSource} IN ('issue_verification_section', 'agent_tests_run', 'operator')`
     ),
     check(
+      'attempts_verification_candidate_shell_check',
+      sql`${table.verificationCandidateShell} IS NULL OR ${table.verificationCandidateShell} IN ('bash', 'sh')`
+    ),
+    check(
+      'attempts_verification_approved_shell_check',
+      sql`${table.verificationApprovedShell} IS NULL OR ${table.verificationApprovedShell} IN ('bash', 'sh')`
+    ),
+    check(
       'attempts_verification_candidate_check',
       sql`(${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateShell} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateScript} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateSource} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateUpdatedAt} IS NULL)`
     ),
@@ -196,6 +204,10 @@ export const verifications = sqliteTable(
     check(
       'verifications_status_check',
       sql`${table.status} IN ('passed', 'failed', 'unverified', 'error')`
+    ),
+    check(
+      'verifications_spec_shell_check',
+      sql`${table.specShell} IS NULL OR ${table.specShell} IN ('bash', 'sh')`
     ),
   ]
 );

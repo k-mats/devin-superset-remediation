@@ -114,7 +114,10 @@ for the current PR head and appends them to the `verifications` table
 Semantics: missing or unverified is _not_ success. `failed`, `unverified`, and
 `error` all leave the attempt in `verifying` to be retried on the next poll;
 only a `passed` command verification completes the attempt as `succeeded` with
-reason `independent_verification_passed: <sha>`. Before completing, the PR
+reason `independent_verification_passed: <sha>`; `completeAttempt` rejects the
+`succeeded` outcome outright — the only path is `completeVerifiedAttempt`,
+which re-validates the verifying state, head SHA, and approved spec hash and
+requires a recorded `passed` command row for that head and spec. Before completing, the PR
 head is re-fetched — if it moved during the run, the recorded pass applies to
 the old head, the new head is stored, and the attempt stays `verifying` for
 the next poll. A previously recorded `passed` row for the current head also

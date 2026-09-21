@@ -348,7 +348,7 @@ describe('Devin dispatcher', () => {
     markDispatching(old.id);
     markSessionCreated(old.id, { devinSessionId: 'old' });
     markRunning(old.id);
-    completeAttempt(old.id, 'succeeded');
+    completeAttempt(old.id, 'failed');
     const before = getAttempt(old.id);
 
     const devin = fakeDevin();

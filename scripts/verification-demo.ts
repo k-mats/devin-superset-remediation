@@ -41,14 +41,17 @@ async function main(): Promise<number> {
       console.error(`Attempt ${values.attempt} not found`);
       return 1;
     }
+    const resolvedTask = db.select().from(tasks).where(eq(tasks.id, attempt.taskId)).get();
+    if (!resolvedTask) {
+      console.error(`Task ${String(attempt.taskId)} not found`);
+      return 1;
+    }
     if (attempt.prNumber !== null) {
-      const owner = config.githubRepoOwner;
-      const repo = config.githubRepoName;
-      if (!owner || !repo) {
-        console.error('Missing GITHUB_REPO_OWNER/GITHUB_REPO_NAME');
-        return 1;
-      }
-      const pr = await github.getPullRequest(owner, repo, attempt.prNumber);
+      const pr = await github.getPullRequest(
+        resolvedTask.repoOwner,
+        resolvedTask.repoName,
+        attempt.prNumber
+      );
       attempt = recordPullRequest(
         attempt.id,
         {
@@ -59,11 +62,6 @@ async function main(): Promise<number> {
         },
         db
       );
-    }
-    const resolvedTask = db.select().from(tasks).where(eq(tasks.id, attempt.taskId)).get();
-    if (!resolvedTask) {
-      console.error(`Task ${String(attempt.taskId)} not found`);
-      return 1;
     }
     const decision = await verifyRemediationOnce(attempt, resolvedTask, {
       github,

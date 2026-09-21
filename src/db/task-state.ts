@@ -16,7 +16,7 @@ import {
   type VerificationKind,
   verifications,
 } from './schema.js';
-import type { VerificationSpec } from '../verification/spec.js';
+import { hashVerificationSpec, type VerificationShell } from '../verification/spec.js';
 
 export type Db = ReturnType<typeof getDb>;
 export type DbExecutor = BaseSQLiteDatabase<'sync', RunResult, Record<string, unknown>>;
@@ -378,7 +378,7 @@ export function completeAttempt(
   db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
-  if (outcome === 'succeeded' && attempt.devinSessionId === null) {
+  if (outcome === 'succeeded') {
     throw new InvalidTransitionError(attemptId, attempt.state, 'completed');
   }
   return transitionAttempt(
@@ -387,6 +387,48 @@ export function completeAttempt(
     {
       outcome,
       outcomeReason: opts.reason,
+      completedAt: Date.now(),
+    },
+    db
+  );
+}
+
+export function completeVerifiedAttempt(
+  attemptId: number,
+  input: { headSha: string; specSha256: string },
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  const passedRow = db
+    .select()
+    .from(verifications)
+    .where(
+      and(
+        eq(verifications.attemptId, attemptId),
+        eq(verifications.headSha, input.headSha),
+        eq(verifications.kind, 'command'),
+        eq(verifications.status, 'passed'),
+        eq(verifications.specSha256, input.specSha256)
+      )
+    )
+    .limit(1)
+    .get();
+  if (
+    attempt.state !== 'verifying' ||
+    attempt.devinSessionId === null ||
+    attempt.prHeadSha !== input.headSha ||
+    attempt.verificationCandidateSha256 !== input.specSha256 ||
+    attempt.verificationApprovedSha256 !== input.specSha256 ||
+    passedRow === undefined
+  ) {
+    throw new InvalidTransitionError(attemptId, attempt.state, 'completed');
+  }
+  return transitionAttempt(
+    attemptId,
+    'completed',
+    {
+      outcome: 'succeeded',
+      outcomeReason: `independent_verification_passed: ${input.headSha}`,
       completedAt: Date.now(),
     },
     db
@@ -404,12 +446,13 @@ export class VerificationSpecMismatchError extends Error {
 
 export function setVerificationCandidate(
   attemptId: number,
-  spec: VerificationSpec,
+  spec: { shell: VerificationShell; script: string },
   source: VerificationCandidateSource,
   db: DbExecutor = getDb()
 ): Attempt {
+  const sha256 = hashVerificationSpec(spec.shell, spec.script);
   const attempt = requireAttempt(attemptId, db);
-  if (attempt.verificationCandidateSha256 === spec.sha256) {
+  if (attempt.verificationCandidateSha256 === sha256) {
     return attempt;
   }
   const timestamp = Date.now();
@@ -418,7 +461,7 @@ export function setVerificationCandidate(
     .set({
       verificationCandidateShell: spec.shell,
       verificationCandidateScript: spec.script,
-      verificationCandidateSha256: spec.sha256,
+      verificationCandidateSha256: sha256,
       verificationCandidateSource: source,
       verificationCandidateUpdatedAt: timestamp,
       updatedAt: timestamp,

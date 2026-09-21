@@ -1,0 +1,95 @@
+PRAGMA foreign_keys=OFF;--> statement-breakpoint
+CREATE TABLE `__new_attempts` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`task_id` integer NOT NULL,
+	`attempt_number` integer NOT NULL,
+	`correlation_id` text NOT NULL,
+	`state` text DEFAULT 'pending' NOT NULL,
+	`outcome` text,
+	`outcome_reason` text,
+	`devin_session_id` text,
+	`devin_session_url` text,
+	`devin_session_status` text,
+	`devin_session_status_detail` text,
+	`acus_consumed` real,
+	`session_updated_at` integer,
+	`session_last_polled_at` integer,
+	`pr_url` text,
+	`pr_number` integer,
+	`pr_state` text,
+	`pr_head_sha` text,
+	`pr_last_checked_at` integer,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`dispatched_at` integer,
+	`session_created_at` integer,
+	`completed_at` integer,
+	`structured_output_raw` text,
+	`agent_outcome` text,
+	`agent_pr_url` text,
+	`agent_diagnosis` text,
+	`agent_tests_run` text,
+	`agent_risks` text,
+	`needs_human_reason` text,
+	`structured_output_accepted_at` integer,
+	`verification_candidate_shell` text,
+	`verification_candidate_script` text,
+	`verification_candidate_sha256` text,
+	`verification_candidate_source` text,
+	`verification_candidate_updated_at` integer,
+	`verification_approved_shell` text,
+	`verification_approved_script` text,
+	`verification_approved_sha256` text,
+	`verification_approved_at` integer,
+	`verification_approved_by` text,
+	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "attempts_attempt_number_check" CHECK("__new_attempts"."attempt_number" > 0),
+	CONSTRAINT "attempts_state_check" CHECK("__new_attempts"."state" IN ('pending', 'dispatching', 'session_created', 'running', 'verifying', 'completed')),
+	CONSTRAINT "attempts_outcome_check" CHECK("__new_attempts"."outcome" IS NULL OR "__new_attempts"."outcome" IN ('succeeded', 'failed', 'cancelled', 'escalated', 'no_action')),
+	CONSTRAINT "attempts_completed_outcome_check" CHECK(("__new_attempts"."state" = 'completed') = ("__new_attempts"."outcome" IS NOT NULL)),
+	CONSTRAINT "attempts_session_id_check" CHECK("__new_attempts"."state" NOT IN ('session_created', 'running', 'verifying') OR "__new_attempts"."devin_session_id" IS NOT NULL),
+	CONSTRAINT "attempts_agent_outcome_check" CHECK("__new_attempts"."agent_outcome" IS NULL OR "__new_attempts"."agent_outcome" IN ('remediated', 'needs_human', 'no_action')),
+	CONSTRAINT "attempts_succeeded_session_check" CHECK("__new_attempts"."outcome" IS NULL OR "__new_attempts"."outcome" <> 'succeeded' OR "__new_attempts"."devin_session_id" IS NOT NULL),
+	CONSTRAINT "attempts_pr_fields_check" CHECK("__new_attempts"."pr_number" IS NULL OR "__new_attempts"."pr_url" IS NOT NULL),
+	CONSTRAINT "attempts_pr_state_check" CHECK("__new_attempts"."pr_state" IS NULL OR "__new_attempts"."pr_state" IN ('open', 'closed', 'merged')),
+	CONSTRAINT "attempts_verification_candidate_source_check" CHECK("__new_attempts"."verification_candidate_source" IS NULL OR "__new_attempts"."verification_candidate_source" IN ('issue_verification_section', 'agent_tests_run', 'operator')),
+	CONSTRAINT "attempts_verification_candidate_shell_check" CHECK("__new_attempts"."verification_candidate_shell" IS NULL OR "__new_attempts"."verification_candidate_shell" IN ('bash', 'sh')),
+	CONSTRAINT "attempts_verification_approved_shell_check" CHECK("__new_attempts"."verification_approved_shell" IS NULL OR "__new_attempts"."verification_approved_shell" IN ('bash', 'sh')),
+	CONSTRAINT "attempts_verification_candidate_check" CHECK(("__new_attempts"."verification_candidate_sha256" IS NULL) = ("__new_attempts"."verification_candidate_shell" IS NULL) AND ("__new_attempts"."verification_candidate_sha256" IS NULL) = ("__new_attempts"."verification_candidate_script" IS NULL) AND ("__new_attempts"."verification_candidate_sha256" IS NULL) = ("__new_attempts"."verification_candidate_source" IS NULL) AND ("__new_attempts"."verification_candidate_sha256" IS NULL) = ("__new_attempts"."verification_candidate_updated_at" IS NULL)),
+	CONSTRAINT "attempts_verification_approved_check" CHECK(("__new_attempts"."verification_approved_sha256" IS NULL) = ("__new_attempts"."verification_approved_shell" IS NULL) AND ("__new_attempts"."verification_approved_sha256" IS NULL) = ("__new_attempts"."verification_approved_script" IS NULL) AND ("__new_attempts"."verification_approved_sha256" IS NULL) = ("__new_attempts"."verification_approved_at" IS NULL) AND ("__new_attempts"."verification_approved_sha256" IS NULL) = ("__new_attempts"."verification_approved_by" IS NULL))
+);
+--> statement-breakpoint
+INSERT INTO `__new_attempts`("id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "devin_session_status", "devin_session_status_detail", "acus_consumed", "session_updated_at", "session_last_polled_at", "pr_url", "pr_number", "pr_state", "pr_head_sha", "pr_last_checked_at", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason", "structured_output_accepted_at", "verification_candidate_shell", "verification_candidate_script", "verification_candidate_sha256", "verification_candidate_source", "verification_candidate_updated_at", "verification_approved_shell", "verification_approved_script", "verification_approved_sha256", "verification_approved_at", "verification_approved_by") SELECT "id", "task_id", "attempt_number", "correlation_id", "state", "outcome", "outcome_reason", "devin_session_id", "devin_session_url", "devin_session_status", "devin_session_status_detail", "acus_consumed", "session_updated_at", "session_last_polled_at", "pr_url", "pr_number", "pr_state", "pr_head_sha", "pr_last_checked_at", "created_at", "updated_at", "dispatched_at", "session_created_at", "completed_at", "structured_output_raw", "agent_outcome", "agent_pr_url", "agent_diagnosis", "agent_tests_run", "agent_risks", "needs_human_reason", "structured_output_accepted_at", "verification_candidate_shell", "verification_candidate_script", "verification_candidate_sha256", "verification_candidate_source", "verification_candidate_updated_at", "verification_approved_shell", "verification_approved_script", "verification_approved_sha256", "verification_approved_at", "verification_approved_by" FROM `attempts`;--> statement-breakpoint
+DROP TABLE `attempts`;--> statement-breakpoint
+ALTER TABLE `__new_attempts` RENAME TO `attempts`;--> statement-breakpoint
+PRAGMA foreign_keys=ON;--> statement-breakpoint
+CREATE UNIQUE INDEX `attempts_correlation_id_unique` ON `attempts` (`correlation_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `attempts_devin_session_id_unique` ON `attempts` (`devin_session_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `attempts_task_attempt_unique` ON `attempts` (`task_id`,`attempt_number`);--> statement-breakpoint
+CREATE UNIQUE INDEX `attempts_task_active_unique` ON `attempts` (`task_id`) WHERE "attempts"."state" IN ('pending', 'dispatching', 'session_created', 'running', 'verifying');--> statement-breakpoint
+CREATE TABLE `__new_verifications` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`attempt_id` integer NOT NULL,
+	`head_sha` text NOT NULL,
+	`kind` text NOT NULL,
+	`status` text NOT NULL,
+	`reason` text,
+	`spec_shell` text,
+	`spec_script` text,
+	`spec_sha256` text,
+	`exit_code` integer,
+	`evidence_url` text,
+	`evidence_summary` text,
+	`started_at` integer,
+	`finished_at` integer,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`attempt_id`) REFERENCES `attempts`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "verifications_kind_check" CHECK("__new_verifications"."kind" IN ('command', 'github_checks')),
+	CONSTRAINT "verifications_status_check" CHECK("__new_verifications"."status" IN ('passed', 'failed', 'unverified', 'error')),
+	CONSTRAINT "verifications_spec_shell_check" CHECK("__new_verifications"."spec_shell" IS NULL OR "__new_verifications"."spec_shell" IN ('bash', 'sh'))
+);
+--> statement-breakpoint
+INSERT INTO `__new_verifications`("id", "attempt_id", "head_sha", "kind", "status", "reason", "spec_shell", "spec_script", "spec_sha256", "exit_code", "evidence_url", "evidence_summary", "started_at", "finished_at", "created_at") SELECT "id", "attempt_id", "head_sha", "kind", "status", "reason", "spec_shell", "spec_script", "spec_sha256", "exit_code", "evidence_url", "evidence_summary", "started_at", "finished_at", "created_at" FROM `verifications`;--> statement-breakpoint
+DROP TABLE `verifications`;--> statement-breakpoint
+ALTER TABLE `__new_verifications` RENAME TO `verifications`;--> statement-breakpoint
+CREATE INDEX `verifications_attempt_head_kind_index` ON `verifications` (`attempt_id`,`head_sha`,`kind`);

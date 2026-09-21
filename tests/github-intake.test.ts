@@ -13,15 +13,22 @@ import {
 import type { Db } from '../src/db/task-state.js';
 import { ActiveAttemptExistsError } from '../src/db/task-state.js';
 import {
+  approveVerificationSpec,
   completeAttempt,
+  completeVerifiedAttempt,
   createAttempt,
   getTaskByIdentity,
   listAttempts,
   markDispatching,
   markRunning,
   markSessionCreated,
+  markVerifying,
+  recordPullRequest,
+  recordVerification,
+  setVerificationCandidate,
   upsertTask,
 } from '../src/db/task-state.js';
+import { hashVerificationSpec } from '../src/verification/spec.js';
 
 const identity = { repoOwner: 'owner', repoName: 'repo' };
 
@@ -107,8 +114,29 @@ describe('GitHub intake', () => {
       if (outcome === 'succeeded') {
         markSessionCreated(attempt.id, { devinSessionId: `session-${outcome}` });
         markRunning(attempt.id);
+        recordPullRequest(attempt.id, {
+          prUrl: 'https://github.com/owner/repo/pull/7',
+          prNumber: 7,
+          prState: 'open',
+          prHeadSha: 'sha',
+        });
+        markVerifying(attempt.id);
+        const specSha256 = hashVerificationSpec('sh', 'echo ok');
+        setVerificationCandidate(attempt.id, { shell: 'sh', script: 'echo ok' }, 'operator');
+        approveVerificationSpec(attempt.id, specSha256, 'operator');
+        recordVerification({
+          attemptId: attempt.id,
+          headSha: 'sha',
+          kind: 'command',
+          status: 'passed',
+          specShell: 'sh',
+          specScript: 'echo ok',
+          specSha256,
+        });
+        completeVerifiedAttempt(attempt.id, { headSha: 'sha', specSha256 });
+      } else {
+        completeAttempt(attempt.id, outcome);
       }
-      completeAttempt(attempt.id, outcome);
 
       const result = await runIntakeOnce(
         options({ listOpenIssuesByLabel: vi.fn().mockResolvedValue([issue()]) })

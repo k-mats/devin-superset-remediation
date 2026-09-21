@@ -155,12 +155,24 @@ describe('verifyRemediationOnce', () => {
     expect(rows[0]?.evidenceUrl).toBe('https://github.com/owner/repo/pull/12/checks');
   });
 
-  it('skips check evaluation when the GitHub lookup fails', async () => {
+  it('records an error row when the GitHub checks lookup fails, deduped across calls', async () => {
     const { task, attempt } = verifyingAttempt();
     const opts = options();
     (opts.github.listCheckRuns as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'));
     await verifyRemediationOnce(attempt, task, opts);
-    expect(listVerifications(attempt.id).filter((r) => r.kind === 'github_checks')).toHaveLength(0);
+    await verifyRemediationOnce(freshAttempt(attempt.id), task, opts);
+    const checks = listVerifications(attempt.id).filter((r) => r.kind === 'github_checks');
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({
+      status: 'error',
+      reason: 'checks_lookup_failed',
+      headSha: 'head-1',
+    });
+    expect(checks[0]?.evidenceSummary).toContain('boom');
+    // The command path still evaluated on both passes.
+    expect(
+      listVerifications(attempt.id).filter((r) => r.kind === 'command').length
+    ).toBeGreaterThan(0);
   });
 
   it('treats a post-dispatch issue verification section as pending_approval without running it', async () => {
