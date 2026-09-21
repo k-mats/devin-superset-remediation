@@ -102,6 +102,9 @@ task-state projection, with the current attempt selected as the active attempt
 when one exists. Reports are scoped to the configured database and include
 database, environment, and repository context; they distinguish task counts
 from attempt throughput and treat only `VERIFIED` as successful.
+For tasks whose terminal state is derived while the attempt is still verifying
+(for example, a closed PR becoming `NEEDS_HUMAN`), terminal time is when the
+decisive evidence was recorded.
 
 ### Verification
 

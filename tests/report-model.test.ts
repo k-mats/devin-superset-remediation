@@ -125,11 +125,35 @@ describe('report model', () => {
     expect(row.bucket).toBe('active');
   });
 
+  it('counts a derived terminal state while the attempt is verifying', () => {
+    const task = makeTask(3);
+    const attempt = attemptFor(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'session-closed-pr' });
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/3',
+      prNumber: 3,
+      prState: 'closed',
+      prHeadSha: 'head-closed',
+    });
+    markVerifying(attempt.id);
+    const now = Date.now();
+    const report = buildReport({ now });
+    const row = taskRow(report);
+
+    expect(row.bucket).toBe('needs_human');
+    expect(row.terminalAt).not.toBeNull();
+    expect(row.terminalAt).toBe(row.lastUpdatedAt);
+    expect(report.throughput.tasksReachedTerminal.last24h).toBe(1);
+    expect(report.cycleTime.sampleSize).toBe(1);
+  });
+
   it.each([
     ['escalated', 'needs_human'],
     ['no_action', 'no_action'],
   ] as const)('maps completed %s to %s', (outcome, bucket) => {
-    const task = makeTask(outcome === 'escalated' ? 3 : 4);
+    const task = makeTask(outcome === 'escalated' ? 4 : 5);
     const attempt = attemptFor(task.id);
     completeAttempt(attempt.id, outcome);
     expect(buildReport({ now: Date.now() }).tasks[0]?.bucket).toBe(bucket);

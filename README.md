@@ -133,6 +133,9 @@ work in the configured `DATABASE_PATH` and include the runtime context
 and dashboard cards count **tasks**, while the attempts-created throughput
 measure counts **attempts**. Success is defined strictly as the normalized
 `VERIFIED` state; a PR URL or open PR is not success.
+For tasks whose terminal state is derived while the attempt is still verifying
+(for example, a closed PR becoming `NEEDS_HUMAN`), terminal time is when the
+decisive evidence was recorded.
 
 Demo and test data use separate databases: `pnpm demo:restart` writes to
 `./data/demo-state-restart.db` by default and can be overridden with

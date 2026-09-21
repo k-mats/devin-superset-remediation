@@ -213,12 +213,6 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     const currentReportAttempt = reportAttempts.find((attempt) => attempt.id === currentAttempt.id);
     if (!currentReportAttempt) throw new Error('Current attempt is missing from report history');
     const bucket = bucketForState(currentProjection.state);
-    const terminalAt =
-      TERMINAL_BUCKETS.includes(bucket) &&
-      currentAttempt.state === 'completed' &&
-      currentAttempt.completedAt !== null
-        ? currentAttempt.completedAt
-        : null;
     const latestCommand =
       currentAttempt.prHeadSha === null
         ? undefined
@@ -227,6 +221,14 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       currentProjection.state === 'VERIFIED' && latestCommand?.status === 'passed'
         ? (latestCommand.finishedAt ?? latestCommand.createdAt)
         : null;
+    const lastUpdatedAt = Math.max(
+      task.updatedAt,
+      ...attemptRows.map((attempt) => attempt.updatedAt),
+      ...verificationTimestamps
+    );
+    const terminalAt = TERMINAL_BUCKETS.includes(bucket)
+      ? (currentAttempt.completedAt ?? lastUpdatedAt)
+      : null;
     const row: ReportTaskRow = {
       taskId: task.id,
       repoOwner: task.repoOwner,
@@ -243,11 +245,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       devinSessionUrl: currentAttempt.devinSessionUrl,
       prUrl: currentAttempt.prUrl,
       discoveredAt: task.createdAt,
-      lastUpdatedAt: Math.max(
-        task.updatedAt,
-        ...attemptRows.map((attempt) => attempt.updatedAt),
-        ...verificationTimestamps
-      ),
+      lastUpdatedAt,
       terminalAt,
       verifiedAt,
     };
