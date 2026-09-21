@@ -59,6 +59,20 @@ Removing or breaking the `## Verification` section clears an issue-derived
 candidate; operator candidates are never cleared or overwritten by issue
 edits.
 
+#### Known limitations of the verification runner
+
+- **Not a security sandbox.** The approved command runs PR-head code in an
+  isolated checkout with a scrubbed environment (no application secrets), a
+  timeout, and process-group cleanup, but it still has host filesystem and
+  network access. This is accepted only because verification targets a
+  trusted public fork; before pointing the runner at untrusted repositories
+  or PR code, run it inside a container/sandbox with restricted filesystem,
+  credentials, and network.
+- **Public repositories only.** The runner clones over unauthenticated HTTPS
+  with `GIT_TERMINAL_PROMPT=0`; private repositories are out of scope and
+  surface as a visible `error/checkout_failed` verification row, never as
+  success.
+
 ### Installation
 
 ```bash
