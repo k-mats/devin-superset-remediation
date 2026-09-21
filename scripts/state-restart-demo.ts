@@ -1,3 +1,4 @@
+import './demo-db-env.js';
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -32,7 +33,7 @@ function write() {
     issueNumber: 101,
     title: 'Persistent task state demo',
   });
-  const first = createAttempt(task.id, 'demo');
+  const first = createAttempt(task.id);
   markDispatching(first.id);
   const sessionId = `demo-session-${first.correlationId}`;
   markSessionCreated(first.id, {
@@ -60,7 +61,7 @@ function write() {
     specSha256: demoSpecSha,
   });
   completeVerifiedAttempt(first.id, { headSha: 'demo-sha', specSha256: demoSpecSha });
-  const second = createAttempt(task.id, 'demo');
+  const second = createAttempt(task.id);
   markDispatching(second.id);
 
   console.log(
