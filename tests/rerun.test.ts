@@ -138,6 +138,52 @@ describe('rerunApprovedVerification', () => {
     );
   });
 
+  it('propagates errors recording a successfully refreshed PR', async () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 64 });
+    const created = createAttempt(task.id);
+    markDispatching(created.id);
+    markSessionCreated(created.id, { devinSessionId: 'session' });
+    markRunning(created.id);
+    recordPullRequest(created.id, {
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'old',
+    });
+    const attempt = markVerifying(created.id);
+    const script = 'echo ok';
+    const spec = { shell: 'sh' as const, script, sha256: hashVerificationSpec('sh', script) };
+    setVerificationCandidate(attempt.id, spec, 'operator');
+    approveVerificationSpec(attempt.id, spec.sha256, 'operator');
+    const github = {
+      getIssue: vi.fn(),
+      listCheckRuns: vi.fn(),
+      getCombinedStatus: vi.fn(),
+      getPullRequest: vi.fn().mockResolvedValue({
+        number: 2,
+        html_url: 'https://github.com/owner/repo/pull/2',
+        state: 'open' as const,
+        merged_at: null,
+        head: { sha: 'new' },
+      }),
+    } as unknown as Pick<
+      GitHubClient,
+      'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
+    >;
+    await expect(
+      rerunApprovedVerification(attempt.id, {
+        github,
+        logger,
+        db: getDb(),
+        workspaceRoot: './data/test-verification',
+        commandTimeoutMs: 100,
+        setupTimeoutMs: 100,
+        checkoutTimeoutMs: 100,
+        maxOutputBytes: 1000,
+      })
+    ).rejects.toThrow();
+  });
+
   it.each([['missing', 999999, 'attempt_not_found']] as const)(
     'returns %s precondition result',
     async (_name, attemptId, reason) => {

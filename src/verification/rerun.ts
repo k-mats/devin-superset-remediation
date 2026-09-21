@@ -65,13 +65,23 @@ export async function rerunApprovedVerification(
     return { ok: false, reason: 'no_approved_spec' };
   }
 
-  let refreshed: Attempt;
+  let pr;
   try {
-    refreshed = await refreshTrackedPullRequest(attempt, task, opts.github, opts.db);
+    pr = await opts.github.getPullRequest(task.repoOwner, task.repoName, attempt.prNumber);
   } catch (error: unknown) {
     opts.logger.warn({ attemptId, err: error }, 'pull request refresh failed');
     return { ok: false, reason: 'pull_request_refresh_failed' };
   }
+  const refreshed = recordPullRequest(
+    attempt.id,
+    {
+      prUrl: pr.html_url,
+      prNumber: pr.number,
+      prState: derivePrState(pr),
+      prHeadSha: pr.head.sha,
+    },
+    opts.db
+  );
   if (!approvedSpec(refreshed)) {
     return { ok: false, reason: 'no_approved_spec' };
   }
