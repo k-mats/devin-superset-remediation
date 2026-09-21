@@ -56,6 +56,15 @@ async function main(): Promise<number> {
         logger,
         db,
         staleWarnMs: config.devinSessionStaleWarnMs,
+        verification: config.verificationEnabled
+          ? {
+              workspaceRoot: config.verificationWorkspaceRoot,
+              commandTimeoutMs: config.verificationCommandTimeoutMs,
+              setupTimeoutMs: config.verificationSetupTimeoutMs,
+              checkoutTimeoutMs: config.verificationCheckoutTimeoutMs,
+              maxOutputBytes: config.verificationMaxOutputBytes,
+            }
+          : undefined,
       });
       result = { decision };
     } else {
@@ -65,6 +74,15 @@ async function main(): Promise<number> {
         logger,
         db,
         staleWarnMs: config.devinSessionStaleWarnMs,
+        verification: config.verificationEnabled
+          ? {
+              workspaceRoot: config.verificationWorkspaceRoot,
+              commandTimeoutMs: config.verificationCommandTimeoutMs,
+              setupTimeoutMs: config.verificationSetupTimeoutMs,
+              checkoutTimeoutMs: config.verificationCheckoutTimeoutMs,
+              maxOutputBytes: config.verificationMaxOutputBytes,
+            }
+          : undefined,
       });
     }
     console.log('Tracking result:');
