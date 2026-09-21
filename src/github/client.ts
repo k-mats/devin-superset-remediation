@@ -217,7 +217,7 @@ export class GitHubClient {
       }
       firstPage ??= parsed.data;
       statuses.push(...parsed.data.statuses);
-      if (parsed.data.statuses.length < this.perPage) {
+      if (statuses.length >= firstPage.total_count || parsed.data.statuses.length < this.perPage) {
         return { ...firstPage, statuses };
       }
     }
