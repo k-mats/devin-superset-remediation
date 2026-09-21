@@ -399,7 +399,7 @@ export function completeVerifiedAttempt(
   db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
-  const passedRow = db
+  const latestRow = db
     .select()
     .from(verifications)
     .where(
@@ -407,10 +407,10 @@ export function completeVerifiedAttempt(
         eq(verifications.attemptId, attemptId),
         eq(verifications.headSha, input.headSha),
         eq(verifications.kind, 'command'),
-        eq(verifications.status, 'passed'),
         eq(verifications.specSha256, input.specSha256)
       )
     )
+    .orderBy(desc(verifications.createdAt), desc(verifications.id))
     .limit(1)
     .get();
   if (
@@ -419,7 +419,7 @@ export function completeVerifiedAttempt(
     attempt.prHeadSha !== input.headSha ||
     attempt.verificationCandidateSha256 !== input.specSha256 ||
     attempt.verificationApprovedSha256 !== input.specSha256 ||
-    passedRow === undefined
+    latestRow?.status !== 'passed'
   ) {
     throw new InvalidTransitionError(attemptId, attempt.state, 'completed');
   }

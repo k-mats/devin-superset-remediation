@@ -56,6 +56,34 @@ describe('parseVerificationSpec', () => {
     expect(result).toEqual({ ok: false, reason: 'verification_block_missing' });
   });
 
+  it('keeps comment lines starting with # inside a fenced block', () => {
+    const result = parseVerificationSpec(
+      body('## Verification\n\n```sh\n# Run the focused regression test\npytest -k x\n```\n')
+    );
+    expect(result).toEqual({
+      ok: true,
+      spec: {
+        shell: 'sh',
+        script: '# Run the focused regression test\npytest -k x',
+        sha256: hashVerificationSpec('sh', '# Run the focused regression test\npytest -k x'),
+      },
+    });
+  });
+
+  it('terminates the section at a heading after a closed block', () => {
+    const result = parseVerificationSpec(
+      body('## Verification\n\n```sh\necho ok\n```\n## Next\n\n```sh\nignored\n```\n')
+    );
+    expect(result).toEqual({
+      ok: true,
+      spec: {
+        shell: 'sh',
+        script: 'echo ok',
+        sha256: hashVerificationSpec('sh', 'echo ok'),
+      },
+    });
+  });
+
   it('rejects an unterminated backtick fence', () => {
     const result = parseVerificationSpec('## Verification\n\n```bash\necho ok\n');
     expect(result).toEqual({ ok: false, reason: 'verification_block_unterminated' });

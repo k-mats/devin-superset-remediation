@@ -1093,6 +1093,58 @@ describe('completeVerifiedAttempt', () => {
     expect(getDb().select().from(attempts).all()[0]?.state).toBe('verifying');
   });
 
+  it('throws when the latest row for the head and spec is a later failure', () => {
+    const attemptId = verifiedAttempt();
+    const specSha256 = verifyAttempt(attemptId, 'sha-1');
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: 'echo ok',
+      specSha256,
+    });
+
+    expect(() => completeVerifiedAttempt(attemptId, { headSha: 'sha-1', specSha256 })).toThrow(
+      InvalidTransitionError
+    );
+    expect(getDb().select().from(attempts).all()[0]?.state).toBe('verifying');
+  });
+
+  it('succeeds when a passed row supersedes an earlier failure', () => {
+    const attemptId = verifiedAttempt();
+    const script = 'echo ok';
+    const specSha256 = hashVerificationSpec('sh', script);
+    markVerifying(attemptId);
+    setVerificationCandidate(attemptId, { shell: 'sh', script }, 'operator');
+    approveVerificationSpec(attemptId, specSha256, 'operator');
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: script,
+      specSha256,
+    });
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'passed',
+      specShell: 'sh',
+      specScript: script,
+      specSha256,
+    });
+
+    const completed = completeVerifiedAttempt(attemptId, {
+      headSha: 'sha-1',
+      specSha256,
+    });
+    expect(completed).toMatchObject({ state: 'completed', outcome: 'succeeded' });
+  });
+
   it('throws when the spec is approved but no passed row exists', () => {
     const attemptId = verifiedAttempt();
     const script = 'echo ok';

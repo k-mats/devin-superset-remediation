@@ -47,13 +47,13 @@ export function parseVerificationSpec(
   }
 
   const sectionStart = heading.index + heading[0].length;
-  const rest = normalized.slice(sectionStart);
-  const nextHeading = NEXT_HEADING_PATTERN.exec(rest);
-  const section = nextHeading ? rest.slice(0, nextHeading.index) : rest;
-
-  const lines = section.split('\n');
+  const lines = normalized.slice(sectionStart).split('\n');
   for (let index = 0; index < lines.length; index += 1) {
-    const fence = FENCE_PATTERN.exec(lines[index] ?? '');
+    const line = lines[index] ?? '';
+    if (NEXT_HEADING_PATTERN.test(line)) {
+      return { ok: false, reason: 'verification_block_missing' };
+    }
+    const fence = FENCE_PATTERN.exec(line);
     if (!fence) continue;
     const marker = fence[1] ?? '';
     const languageTag = (fence[2] ?? '').toLowerCase();
