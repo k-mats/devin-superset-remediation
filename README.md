@@ -70,12 +70,12 @@ credentials unset the application still starts and serves health, readiness,
 reporting, and the dashboard — only GitHub intake, Devin dispatch, and
 session/PR tracking are skipped (each logs a warning).
 
-| Group                      | Variables                                                                                                                              | Required?                               |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                        | No — defaults in `.env.example` suffice |
-| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_INTAKE_LABEL`                                | Only for real orchestration             |
-| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                          | Only for real orchestration             |
-| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*` | No — sensible defaults                  |
+| Group                      | Variables                                                                                                                                                              | Required?                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                        | No — defaults in `.env.example` suffice |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (`GITHUB_WEBHOOK_SECRET` is reserved for webhook intake, Issue #22 — unused by polling) | Only for real orchestration             |
+| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                          | Only for real orchestration             |
+| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*`                                 | No — sensible defaults                  |
 
 ### Persistence
 
@@ -98,11 +98,16 @@ curl -s http://localhost:3000/api/report | grep -i docker   # still present
 
 ### Single-command equivalent
 
-Compose is the primary path; a plain `docker run` works too:
+Compose is the primary path; a plain `docker run` works too. Pass the same
+overrides that `compose.yaml` pins (`.env.example` sets `NODE_ENV=development`
+for local development, so it must be overridden explicitly here):
 
 ```bash
 docker build -t devin-superset-remediation .
 docker run --rm -p 3000:3000 --env-file .env \
+  -e NODE_ENV=production -e HOST=0.0.0.0 \
+  -e DATABASE_PATH=/app/data/orchestrator.db \
+  -e VERIFICATION_WORKSPACE_ROOT=/app/data/verification \
   -v orchestrator-data:/app/data devin-superset-remediation
 ```
 
@@ -116,6 +121,16 @@ docker compose exec app node dist/cli/verification-propose.js --attempt <id> --c
 docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>
 docker compose exec app node dist/cli/verification-show.js --attempt <id>
 ```
+
+### Trust boundary of in-container verification
+
+Independent verification runs checked-out repository / PR code **inside the
+same `app` container, as the same non-root `app` user** as the orchestrator.
+The child process environment is sanitized (no GitHub/Devin credentials), but
+the container is not a security isolation boundary between the orchestrator
+and the code under verification. In this prototype only use it with trusted
+repositories and remediation inputs; see
+[Known limitations of the verification runner](#known-limitations-of-the-verification-runner).
 
 ### Graceful shutdown
 
@@ -175,13 +190,18 @@ edits.
 
 #### Known limitations of the verification runner
 
-- **Not a security sandbox.** The approved command runs PR-head code in an
-  isolated checkout with a scrubbed environment (no application secrets), a
-  timeout, and process-group cleanup, but it still has host filesystem and
-  network access. This is accepted only because verification targets a
-  trusted public fork; before pointing the runner at untrusted repositories
-  or PR code, run it inside a container/sandbox with restricted filesystem,
-  credentials, and network.
+- **Not a security sandbox.** Independent verification executes repository /
+  PR-head code locally inside the application process's own environment —
+  under Docker that is the same `app` container and the same Unix user
+  (`app`, uid 1001) as the orchestrator itself. The child process gets a
+  sanitized environment (allow-listed variables only, no GitHub/Devin
+  credentials), a timeout, and process-group cleanup, but it shares the
+  container filesystem (including `/app/data` and the SQLite database) and
+  network with the orchestrator. This is **not** a security isolation
+  boundary; in this prototype it should only be used with trusted
+  repositories and remediation inputs (the controlled Superset fork). A
+  separate sandbox/container for verification is out of scope for Issue #17.
+  See also the trust-boundary note in [Running with Docker](#running-with-docker-issue-17).
 - **Public repositories only.** The runner clones over unauthenticated HTTPS
   with `GIT_TERMINAL_PROMPT=0`; private repositories are out of scope and
   surface as a visible `error/checkout_failed` verification row, never as
