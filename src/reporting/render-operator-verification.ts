@@ -109,7 +109,7 @@ export function renderOperatorVerificationPage(
       : `<p>sha256: <code>${escapeHtml(view.approved.sha256)}</code>; shell: ${escapeHtml(view.approved.shell ?? '—')}; approved by: ${escapeHtml(view.approved.approvedBy ?? '—')}; approved at: ${escapeHtml(formatTime(view.approved.approvedAt))}</p>${renderScript(view.approved.script)}`;
   const rows =
     view.verifications.length === 0
-      ? '<tr><td colspan="10">No independent verification results.</td></tr>'
+      ? '<tr><td colspan="9">No independent verification results.</td></tr>'
       : view.verifications
           .map((row) => {
             const evidenceHref = safeHref(row.evidenceUrl);

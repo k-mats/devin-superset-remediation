@@ -49,10 +49,7 @@ export interface OperatorVerificationRouteOptions {
 const paramsSchema = z.object({ attemptId: z.coerce.number().int().positive() });
 const proposalSchema = z.object({
   shell: z.enum(['sh', 'bash']),
-  script: z
-    .string()
-    .max(65536)
-    .refine((value) => value.trimEnd().length > 0, 'script must not be empty'),
+  script: z.string().max(65536),
 });
 const approvalSchema = z.object({ spec_sha256: z.string().regex(/^[0-9a-f]{64}$/) });
 
@@ -152,7 +149,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   opts: OperatorVerificationRouteOptions,
   done
 ) => {
-  const db = opts.db ?? getDb();
+  const dbForRequest = (): Db => opts.db ?? getDb();
   fastify.addContentTypeParser(
     'application/x-www-form-urlencoded',
     { parseAs: 'string' },
@@ -164,6 +161,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   fastify.get('/operator/attempts/:attemptId/verification', async (request, reply) => {
     const parsed = paramsSchema.safeParse(request.params);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
+    const db = dbForRequest();
     const view = loadView(parsed.data.attemptId, db, opts);
     if (!view) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
     reply.header('Cache-Control', 'no-store');
@@ -173,6 +171,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   fastify.post('/operator/attempts/:attemptId/verification/propose', (request, reply) => {
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
+    const db = dbForRequest();
     const view = loadView(parsedParams.data.attemptId, db, opts);
     if (!view) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
     const parsedBody = proposalSchema.safeParse(bodyObject(request.body));
@@ -182,8 +181,20 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
         message:
           'Invalid proposal: shell must be sh or bash and script must be 1–65536 characters.',
       });
+    const script = parsedBody.data.script.replaceAll('\r\n', '\n').replace(/\s+$/, '');
+    if (script === '')
+      return sendPage(reply, view, 400, {
+        level: 'error',
+        message:
+          'Invalid proposal: shell must be sh or bash and script must be 1–65536 characters.',
+      });
     try {
-      setVerificationCandidate(parsedParams.data.attemptId, parsedBody.data, 'operator', db);
+      setVerificationCandidate(
+        parsedParams.data.attemptId,
+        { shell: parsedBody.data.shell, script },
+        'operator',
+        db
+      );
       return reply
         .code(303)
         .header(
@@ -192,7 +203,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
         )
         .send();
     } catch (error: unknown) {
-      const current = loadView(parsedParams.data.attemptId, db, opts);
+      const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);
       if (!current) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
       if (error instanceof AttemptCompletedError)
         return sendPage(reply, current, 409, { level: 'error', message: error.message });
@@ -203,6 +214,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   fastify.post('/operator/attempts/:attemptId/verification/approve', (request, reply) => {
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
+    const db = dbForRequest();
     const view = loadView(parsedParams.data.attemptId, db, opts);
     if (!view) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
     const parsedBody = approvalSchema.safeParse(bodyObject(request.body));
@@ -223,7 +235,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
         )
         .send();
     } catch (error: unknown) {
-      const current = loadView(parsedParams.data.attemptId, db, opts);
+      const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);
       if (!current) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
       if (error instanceof VerificationSpecMismatchError)
         return sendPage(reply, current, 409, {
@@ -239,6 +251,7 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
   fastify.post('/operator/attempts/:attemptId/verification/rerun', async (request, reply) => {
     const parsedParams = paramsSchema.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_attempt_id' });
+    const db = dbForRequest();
     const view = loadView(parsedParams.data.attemptId, db, opts);
     if (!view) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
     if (opts.verification === undefined)
@@ -259,12 +272,14 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
       logger: opts.logger,
       db,
     });
-    if (!result.ok)
-      return sendPage(reply, view, 409, {
+    if (!result.ok) {
+      const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);
+      return sendPage(reply, current ?? view, 409, {
         level: 'error',
         message: `Rerun unavailable: ${result.reason}`,
       });
-    const current = loadView(parsedParams.data.attemptId, db, opts);
+    }
+    const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);
     if (!current) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
     return sendPage(reply, current, 200, {
       level: 'info',
