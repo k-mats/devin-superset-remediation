@@ -95,6 +95,14 @@ docker inspect docker-clean-check-app-1 --format '{{.State.ExitCode}}'
 # 0
 ```
 
+Scope note: this graceful shutdown was demonstrated with **no long-running
+verification in flight** (idle service). An in-flight verification —
+checkout / setup / command, with timeouts up to 5 / 30 / 15 minutes — may
+be forcibly killed when `stop_grace_period` (15s) expires. Verification
+workspaces and recorded state persist on the `orchestrator-data` volume,
+but graceful cancellation and restart reconciliation of an in-flight
+verification are not implemented yet (follow-up).
+
 ### In-container verification toolchain
 
 ```bash
@@ -137,6 +145,44 @@ git ls-files | grep -E '^\.env$'
 #  from the build context while keeping .env.example)
 ```
 
+### Operator CLIs inside the container
+
+Recorded on a fresh clone of the pushed branch with a rebuilt image
+(`docker compose up --build -d`), after seeding task+attempt id 1 with the
+README seed command:
+
+```bash
+docker compose exec app ls dist/cli
+# verification-approve.js  verification-propose.js  verification-show.js  (+ .map)
+
+docker compose exec app node dist/cli/verification-propose.js --attempt 1 --command "echo ok"
+# Candidate sha256: 97b9f51fe854c6a83b766f5a6c4f577933ab4c3696ab685e574078893ab47251
+# Candidate source: operator
+# Script:
+# echo ok
+# Approve with: verification-approve --attempt 1 --spec-hash 97b9f51f...
+
+docker compose exec app node dist/cli/verification-approve.js --attempt 1 --spec-hash 0000...0000
+# Refusing to approve: 0000...0000 does not match the current candidate.
+# (exit code 1)
+
+docker compose exec app node dist/cli/verification-approve.js --attempt 1 --spec-hash 97b9f51f...ab47251
+# New approved sha256:      97b9f51fe854c6a83b766f5a6c4f577933ab4c3696ab685e574078893ab47251
+# Approved by:              operator
+# (exit code 0)
+
+docker compose exec app node dist/cli/verification-show.js --attempt 1
+# ... Approved table: sha256 97b9f51f..., approved_by 'operator', script 'echo ok'
+# Approval status: approved
+
+docker compose exec app node dist/cli/verification-approve.js
+# Usage: verification-approve --attempt <id> --spec-hash <sha256>
+# (exit code 1)
+```
+
+No `tsx`, dev dependencies, or `.env` are required inside the container
+(`dotenv` reports `injected env (0) from .env`).
+
 ## Result
 
 | Check                                            | Outcome                                                                                                    |
@@ -148,6 +194,7 @@ git ls-files | grep -E '^\.env$'
 | `docker compose down && up -d`                   | task still present (named volume `orchestrator-data`)                                                      |
 | Graceful shutdown                                | SIGTERM log `Shutting down`, exit code 0                                                                   |
 | Verification toolchain in image                  | git 2.39.5, uv 0.9.26, uv-managed Python 3.12.12, native deps                                              |
+| Operator CLIs run in-container (`dist/cli/`)     | propose/approve/show exit 0; wrong hash and no-args exit 1                                                 |
 | Secrets                                          | none in image layers/config; env values empty by default; `.env` untracked and excluded from build context |
 | Build context                                    | 3.54 kB transferred (`.dockerignore`)                                                                      |
 
