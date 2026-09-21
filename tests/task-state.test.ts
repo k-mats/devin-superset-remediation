@@ -81,8 +81,9 @@ describe('task state repository', () => {
       issueNumber: 101,
       title: 'Persistent state',
     });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     expect(attempt.state).toBe('pending');
+    expect(attempt.runKind).toBe('mock');
 
     const dispatching = markDispatching(attempt.id);
     const sessionCreated = markSessionCreated(attempt.id, {
@@ -117,7 +118,7 @@ describe('task state repository', () => {
       issueNumber: 101,
       title: 'Restart state',
     });
-    const first = createAttempt(task.id);
+    const first = createAttempt(task.id, 'mock');
     markDispatching(first.id);
     markSessionCreated(first.id, { devinSessionId: 'restart-session' });
     markRunning(first.id);
@@ -128,7 +129,7 @@ describe('task state repository', () => {
       prHeadSha: 'sha',
     });
     completeAttempt(first.id, 'failed');
-    const second = createAttempt(task.id);
+    const second = createAttempt(task.id, 'mock');
     markDispatching(second.id);
 
     const beforeTask = getTaskByIdentity({
@@ -153,7 +154,7 @@ describe('task state repository', () => {
 
   it('compares pull request identity by number while guarding URL-only rows', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 102 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     markDispatching(attempt.id);
     markSessionCreated(attempt.id, { devinSessionId: 'canonicalize-session' });
     markRunning(attempt.id);
@@ -180,7 +181,7 @@ describe('task state repository', () => {
     ).toThrow(PullRequestMismatchError);
     completeAttempt(attempt.id, 'failed');
 
-    const repositoryChanged = createAttempt(task.id);
+    const repositoryChanged = createAttempt(task.id, 'mock');
     markDispatching(repositoryChanged.id);
     markSessionCreated(repositoryChanged.id, { devinSessionId: 'repository-change-session' });
     markRunning(repositoryChanged.id);
@@ -197,7 +198,7 @@ describe('task state repository', () => {
     ).toThrow(PullRequestMismatchError);
     completeAttempt(repositoryChanged.id, 'failed');
 
-    const urlOnly = createAttempt(task.id);
+    const urlOnly = createAttempt(task.id, 'mock');
     markDispatching(urlOnly.id);
     markSessionCreated(urlOnly.id, { devinSessionId: 'url-only-session' });
     completeAttempt(urlOnly.id, 'failed');
@@ -220,11 +221,11 @@ describe('task state repository', () => {
       repoName: 'repo',
       issueNumber: 1,
     });
-    const first = createAttempt(task.id);
+    const first = createAttempt(task.id, 'mock');
     completeAttempt(first.id, 'cancelled');
-    const second = createAttempt(task.id);
+    const second = createAttempt(task.id, 'mock');
     completeAttempt(second.id, 'cancelled');
-    const third = createAttempt(task.id);
+    const third = createAttempt(task.id, 'mock');
     const created = [first, second, third];
 
     expect(created.map((attempt) => attempt.attemptNumber)).toEqual([1, 2, 3]);
@@ -295,7 +296,7 @@ describe('task state repository', () => {
 
   it('rejects invalid transitions', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
 
     expect(() => markSessionCreated(attempt.id, { devinSessionId: 'invalid' })).toThrow(
       InvalidTransitionError
@@ -322,7 +323,7 @@ describe('task state repository', () => {
 
   it('accepts a structured output only once', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     markDispatching(attempt.id);
     markSessionCreated(attempt.id, { devinSessionId: 'sess' });
     const parsed = {
@@ -372,7 +373,7 @@ describe('task state repository', () => {
       StructuredOutputAlreadyAcceptedError
     );
 
-    const plain = createAttempt(task.id);
+    const plain = createAttempt(task.id, 'mock');
     completeAttempt(plain.id, 'cancelled');
     expect(() => recordStructuredOutput(plain.id, { raw: null, parsed: undefined })).toThrow(
       InvalidTransitionError
@@ -381,7 +382,7 @@ describe('task state repository', () => {
 
   it('rejects stale completion and preserves the newer outcome', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     markDispatching(attempt.id);
     const sqlite = getRawDb();
     if (!sqlite) {
@@ -399,7 +400,7 @@ describe('task state repository', () => {
 
   it('rejects succeeded via completeAttempt even for a verifying attempt with a session', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
 
     expect(() => completeAttempt(attempt.id, 'succeeded')).toThrow(InvalidTransitionError);
     markDispatching(attempt.id);
@@ -439,7 +440,7 @@ describe('task state repository', () => {
         .run('owner', 'zero-issue', 0, timestamp, timestamp)
     ).toThrow();
 
-    const existingAttempt = createAttempt(task.id);
+    const existingAttempt = createAttempt(task.id, 'mock');
     const insertAttempt = sqlite.prepare(
       `INSERT INTO attempts
         (task_id, attempt_number, correlation_id, state, outcome, devin_session_id, created_at, updated_at)
@@ -534,7 +535,7 @@ describe('task state repository', () => {
     const db = getDb();
     db.transaction((tx) => {
       const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 }, tx);
-      const attempt = createAttempt(task.id, tx);
+      const attempt = createAttempt(task.id, 'mock', tx);
       expect(
         getTaskByIdentity({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 }, tx)
       ).toEqual(task);
@@ -548,7 +549,7 @@ describe('task state repository', () => {
 
   it('claims a pending attempt atomically and returns undefined otherwise', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
 
     const claimed = claimAttemptForDispatch(attempt.id);
     expect(claimed).toMatchObject({ id: attempt.id, state: 'dispatching' });
@@ -559,7 +560,7 @@ describe('task state repository', () => {
 
   it('releases a dispatch claim back to pending only when no session exists', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const pending = createAttempt(task.id);
+    const pending = createAttempt(task.id, 'mock');
 
     // Not yet claimed: nothing to release.
     expect(releaseDispatchClaim(pending.id)).toBeUndefined();
@@ -578,7 +579,7 @@ describe('task state repository', () => {
 
   it('rejects markDispatching on a non-pending attempt', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     claimAttemptForDispatch(attempt.id);
 
     expect(() => markDispatching(attempt.id)).toThrow(InvalidTransitionError);
@@ -586,7 +587,7 @@ describe('task state repository', () => {
 
   it('allows pending -> completed (cancelled) but not succeeded without a session', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const cancelled = createAttempt(task.id);
+    const cancelled = createAttempt(task.id, 'mock');
     expect(() => completeAttempt(cancelled.id, 'succeeded')).toThrow(InvalidTransitionError);
     const completed = completeAttempt(cancelled.id, 'cancelled', { reason: 'label_missing' });
     expect(completed).toMatchObject({
@@ -595,14 +596,14 @@ describe('task state repository', () => {
       outcomeReason: 'label_missing',
     });
 
-    const another = createAttempt(task.id);
+    const another = createAttempt(task.id, 'mock');
     markDispatching(another.id);
     expect(() => completeAttempt(another.id, 'succeeded')).toThrow(InvalidTransitionError);
   });
 
   it('persists the outcome reason on completion', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const completed = completeAttempt(attempt.id, 'failed', {
       reason: 'eligibility_check_failed: boom',
     });
@@ -612,28 +613,28 @@ describe('task state repository', () => {
 
   it('rejects a second active attempt but allows one after completion', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const first = createAttempt(task.id);
+    const first = createAttempt(task.id, 'mock');
 
-    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    expect(() => createAttempt(task.id, 'mock')).toThrow(ActiveAttemptExistsError);
     markDispatching(first.id);
-    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    expect(() => createAttempt(task.id, 'mock')).toThrow(ActiveAttemptExistsError);
     markSessionCreated(first.id, { devinSessionId: 'active-session' });
-    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    expect(() => createAttempt(task.id, 'mock')).toThrow(ActiveAttemptExistsError);
     markRunning(first.id);
-    expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
+    expect(() => createAttempt(task.id, 'mock')).toThrow(ActiveAttemptExistsError);
 
     completeAttempt(first.id, 'failed');
-    expect(createAttempt(task.id).state).toBe('pending');
+    expect(createAttempt(task.id, 'mock').state).toBe('pending');
   });
 
   it('lists pending attempts in insertion order with their tasks', () => {
     const first = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const second = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 });
     const third = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 3 });
-    const firstAttempt = createAttempt(first.id);
-    const claimed = createAttempt(second.id);
+    const firstAttempt = createAttempt(first.id, 'mock');
+    const claimed = createAttempt(second.id, 'mock');
     claimAttemptForDispatch(claimed.id);
-    const thirdAttempt = createAttempt(third.id);
+    const thirdAttempt = createAttempt(third.id, 'mock');
 
     const rows = findPendingAttempts();
     expect(rows.map((row) => row.attempt.id)).toEqual([firstAttempt.id, thirdAttempt.id]);
@@ -766,12 +767,12 @@ describe('task state repository', () => {
     const staleTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const sessionTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 2 });
     const completedTask = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 3 });
-    const stale = createAttempt(staleTask.id);
+    const stale = createAttempt(staleTask.id, 'mock');
     markDispatching(stale.id);
-    const session = createAttempt(sessionTask.id);
+    const session = createAttempt(sessionTask.id, 'mock');
     markDispatching(session.id);
     markSessionCreated(session.id, { devinSessionId: 'not-stale' });
-    const completed = createAttempt(completedTask.id);
+    const completed = createAttempt(completedTask.id, 'mock');
     markDispatching(completed.id);
     completeAttempt(completed.id, 'failed');
 
@@ -783,7 +784,7 @@ describe('task state repository', () => {
     const rawDb = getRawDb();
     if (!rawDb) throw new Error('Raw database was not initialized');
     const setPrState = (prState: 'open' | 'closed' | 'merged' | null) => {
-      const attempt = createAttempt(task.id);
+      const attempt = createAttempt(task.id, 'mock');
       markDispatching(attempt.id);
       markSessionCreated(attempt.id, { devinSessionId: `legacy-session-${String(attempt.id)}` });
       completeAttempt(attempt.id, 'failed');
@@ -833,7 +834,7 @@ describe('verification candidate and approval state', () => {
 
   it('sets, idempotently keeps, and overwrites the verification candidate', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
 
     const first = setVerificationCandidate(attempt.id, candidate('echo one'), 'operator');
     expect(first.verificationCandidateSha256).toBe(candidate('echo one').sha256);
@@ -855,7 +856,7 @@ describe('verification candidate and approval state', () => {
 
   it('approves only a hash matching the current candidate', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     expect(() => approveVerificationSpec(attempt.id, 'deadbeef', 'operator')).toThrow(
       VerificationSpecMismatchError
     );
@@ -875,7 +876,7 @@ describe('verification candidate and approval state', () => {
 
   it('returns to pending approval when the candidate changes', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const first = candidate('echo v1');
     setVerificationCandidate(attempt.id, first, 'operator');
     approveVerificationSpec(attempt.id, first.sha256, 'operator');
@@ -888,7 +889,7 @@ describe('verification candidate and approval state', () => {
 
   it('records, lists, and finds verification rows', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
 
     recordVerification({
       attemptId: attempt.id,
@@ -931,7 +932,7 @@ describe('verification candidate and approval state', () => {
     const sqlite = getRawDb();
     if (!sqlite) throw new Error('Database not initialized');
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const timestamp = Date.now();
 
     expect(() =>
@@ -987,7 +988,7 @@ describe('verification candidate and approval state', () => {
 
   it('recomputes the candidate hash and ignores a caller-supplied sha256', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const bogusSha = hashVerificationSpec('sh', 'echo b');
     const callerSpec = { shell: 'sh' as const, script: 'echo a', sha256: bogusSha };
 
@@ -1001,7 +1002,7 @@ describe('verification candidate and approval state', () => {
 
   it('treats an equal-hash non-operator proposal as a no-op over an issue candidate', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const issueCandidate = setVerificationCandidate(
       attempt.id,
       { shell: 'sh', script: 'echo ok' },
@@ -1019,7 +1020,7 @@ describe('verification candidate and approval state', () => {
 
   it('clearVerificationCandidate with onlySource mismatch is a no-op', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const withCandidate = setVerificationCandidate(
       attempt.id,
       { shell: 'sh', script: 'echo op' },
@@ -1055,7 +1056,7 @@ describe('completeVerifiedAttempt', () => {
 
   function verifiedAttempt() {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     markDispatching(attempt.id);
     markSessionCreated(attempt.id, { devinSessionId: 'sess-verified' });
     markRunning(attempt.id);

@@ -53,7 +53,7 @@ function pullRequest(overrides: Partial<GitHubPullRequest> = {}): GitHubPullRequ
 
 function activeAttempt(issueNumber = 7) {
   const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber });
-  const attempt = createAttempt(task.id);
+  const attempt = createAttempt(task.id, 'mock');
   markDispatching(attempt.id);
   return {
     task,

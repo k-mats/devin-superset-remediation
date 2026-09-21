@@ -47,7 +47,7 @@ const validOutput: StructuredOutput = {
 
 function activeAttempt(sessionId = 'sess-1') {
   const task = upsertTask({ ...identity, issueNumber: 7 });
-  const attempt = createAttempt(task.id);
+  const attempt = createAttempt(task.id, 'mock');
   markDispatching(attempt.id);
   return markSessionCreated(attempt.id, { devinSessionId: sessionId });
 }
@@ -333,7 +333,7 @@ describe('collectStructuredOutput', () => {
 
   it('returns no_session when the attempt has no Devin session id', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
-    const attempt = createAttempt(task.id);
+    const attempt = createAttempt(task.id, 'mock');
     const getSession = vi.fn();
 
     const result = await collectStructuredOutput(attempt, {
