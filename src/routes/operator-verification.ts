@@ -59,9 +59,13 @@ function bodyObject(body: unknown): Record<string, unknown> {
 }
 
 function rejectCrossSite(request: FastifyRequest, reply: FastifyReply): boolean {
-  if (request.headers['sec-fetch-site'] === 'cross-site') {
-    reply.code(403).send({ error: 'cross_site_request' });
-    return true;
+  const secFetchSite = request.headers['sec-fetch-site'];
+  if (secFetchSite !== undefined) {
+    if (secFetchSite === 'cross-site') {
+      reply.code(403).send({ error: 'cross_site_request' });
+      return true;
+    }
+    return false;
   }
   const origin = request.headers.origin;
   if (origin !== undefined) {

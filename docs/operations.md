@@ -114,7 +114,9 @@ attempt state after acquiring it. The remaining limitation is cross-process:
 `demo:verification` and CLI runs in a separate process against a live service
 are not covered by the in-process lock.
 Mutating operator forms reject cross-site requests (Origin/Sec-Fetch-Site check);
-there is still no authentication.
+there is still no authentication. Behind a proxy that rewrites Host, modern
+browsers' Sec-Fetch-Site header keeps forms working; legacy clients without it
+must present an Origin matching Host.
 
 ### Trust boundary of in-container verification
 

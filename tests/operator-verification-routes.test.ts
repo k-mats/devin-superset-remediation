@@ -232,6 +232,22 @@ describe('operator verification routes', () => {
     expect(response.statusCode).toBe(303);
   });
 
+  it('allows a same-origin fetch through a proxy with a rewritten Host', async () => {
+    const { attempt } = verifyingAttempt();
+    const response = await server.inject({
+      method: 'POST',
+      url: `/operator/attempts/${String(attempt.id)}/verification/propose`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        host: 'upstream.internal:3000',
+        origin: 'https://operator.example',
+        'sec-fetch-site': 'same-origin',
+      },
+      payload: new URLSearchParams({ shell: 'sh', script: 'echo proxied' }).toString(),
+    });
+    expect(response.statusCode).toBe(303);
+  });
+
   it('renders no-candidate, pending, and approved review states', async () => {
     const { attempt } = verifyingAttempt();
     const empty = await server.inject({
