@@ -4,6 +4,8 @@ import { attempts, tasks, verifications } from '../src/db/schema.js';
 import type { Attempt, Verification } from '../src/db/schema.js';
 import {
   approveVerificationSpec,
+  AttemptCompletedError,
+  clearVerificationCandidate,
   completeVerifiedAttempt,
   createAttempt,
   getAttempt,
@@ -658,6 +660,59 @@ describe('projectTaskState (db-backed)', () => {
     projection = projectTaskState(refreshed, db);
     expect(projection.state).toBe('CI_PENDING');
     expect(projection.reason).toBe('github_checks_pending');
+  });
+
+  it('rejects verification spec mutations after a completed verified attempt', () => {
+    const db = getDb();
+    const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 16 });
+    const attempt = createAttempt(task.id, db);
+    markDispatching(attempt.id, db);
+    markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
+    markRunning(attempt.id, db);
+    recordPullRequest(
+      attempt.id,
+      {
+        prUrl: 'https://github.com/o/r/pull/5',
+        prNumber: 5,
+        prState: 'open',
+        prHeadSha: 'head-a',
+      },
+      db
+    );
+    markVerifying(attempt.id, db);
+
+    const script = 'echo ok';
+    const sha = hashVerificationSpec('bash', script);
+    setVerificationCandidate(attempt.id, { shell: 'bash', script }, 'operator', db);
+    approveVerificationSpec(attempt.id, sha, 'operator', db);
+    recordVerification(
+      {
+        attemptId: attempt.id,
+        headSha: 'head-a',
+        kind: 'command',
+        status: 'passed',
+        specSha256: sha,
+      },
+      db
+    );
+    const completed = completeVerifiedAttempt(
+      attempt.id,
+      { headSha: 'head-a', specSha256: sha },
+      db
+    );
+    expect(projectTaskState(completed, db).state).toBe('VERIFIED');
+
+    const differentSpec = { shell: 'bash' as const, script: 'echo changed' };
+    expect(() => setVerificationCandidate(attempt.id, differentSpec, 'operator', db)).toThrowError(
+      AttemptCompletedError
+    );
+    expect(() => clearVerificationCandidate(attempt.id, {}, db)).toThrowError(
+      AttemptCompletedError
+    );
+    expect(() => approveVerificationSpec(attempt.id, sha, 'operator', db)).toThrowError(
+      AttemptCompletedError
+    );
+    expect(projectTaskState(getAttempt(attempt.id, db)!, db).state).toBe('VERIFIED');
   });
 
   it('projects VERIFIED for a completed attempt and demotes it when the head moves', () => {

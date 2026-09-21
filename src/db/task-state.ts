@@ -444,6 +444,13 @@ export class VerificationSpecMismatchError extends Error {
   }
 }
 
+export class AttemptCompletedError extends Error {
+  constructor(attemptId: number) {
+    super(`Attempt ${String(attemptId)} is completed; verification spec cannot be changed`);
+    this.name = 'AttemptCompletedError';
+  }
+}
+
 export function setVerificationCandidate(
   attemptId: number,
   spec: { shell: VerificationShell; script: string },
@@ -452,6 +459,9 @@ export function setVerificationCandidate(
 ): Attempt {
   const sha256 = hashVerificationSpec(spec.shell, spec.script);
   const attempt = requireAttempt(attemptId, db);
+  if (attempt.state === 'completed') {
+    throw new AttemptCompletedError(attemptId);
+  }
   if (
     attempt.verificationCandidateSha256 === sha256 &&
     (source !== 'operator' || attempt.verificationCandidateSource === 'operator')
@@ -483,6 +493,10 @@ export function clearVerificationCandidate(
   opts: { onlySource?: VerificationCandidateSource } = {},
   db: DbExecutor = getDb()
 ): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (attempt.state === 'completed') {
+    throw new AttemptCompletedError(attemptId);
+  }
   const timestamp = Date.now();
   db.update(attempts)
     .set({
@@ -510,6 +524,9 @@ export function approveVerificationSpec(
   db: DbExecutor = getDb()
 ): Attempt {
   const attempt = requireAttempt(attemptId, db);
+  if (attempt.state === 'completed') {
+    throw new AttemptCompletedError(attemptId);
+  }
   if (
     attempt.verificationCandidateSha256 === null ||
     attempt.verificationCandidateSha256 !== specSha256

@@ -91,6 +91,13 @@ the staleness filter drops it, and the projection demotes to `PR_OPEN` /
 evidence arrives for the new head). `raw.outcome` still shows `succeeded` —
 the historical fact is preserved; the normalized state describes now.
 
+Once an attempt is `completed`, its verification candidate and approval are
+immutable. `setVerificationCandidate`, `clearVerificationCandidate`, and
+`approveVerificationSpec` reject all later mutation attempts with
+`AttemptCompletedError`, so a completed attempt cannot be changed underneath
+its current-head projection. The operator propose/approve scripts surface
+that thrown error directly.
+
 ## Raw provider status stays separate
 
 The projection never rewrites the underlying facts. Example covered by
@@ -109,20 +116,20 @@ queryable beside the normalized value (`raw` in the projection, and the
 
 ## State transition tests
 
-`tests/normalized-task-state.test.ts` — 36 tests: a table-driven sweep over
+`tests/normalized-task-state.test.ts` — 39 tests: a table-driven sweep over
 `deriveTaskState` fixtures (all states plus the non-success paths,
-including superseded-head and superseded-spec regressions) and two
-DB-backed tests exercising `loadTaskStateEvidence`/`projectTaskState`
+including superseded-head, superseded-spec, and closed-PR regressions) and
+three DB-backed tests exercising `loadTaskStateEvidence`/`projectTaskState`
 across real head changes, including a full `completeVerifiedAttempt`
-lifecycle:
+lifecycle and the completed-attempt spec-mutation guard:
 
 ```
  RUN  v5.0.1 /home/ubuntu/repos/devin-superset-remediation
 
  Test Files  1 passed (1)
-      Tests  36 passed (36)
-   Start at  12:54:54
-   Duration  627ms
+      Tests  39 passed (39)
+   Start at  13:19:47
+   Duration  590ms (import 63%, transform 20%, tests 14%, worker 1%, setup 1%)
 ```
 
 Command: `pnpm vitest run tests/normalized-task-state.test.ts`
