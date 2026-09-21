@@ -27,8 +27,8 @@ devin-superset-remediation/
 │   │   ├── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
 │   │   └── normalized-task-state.ts # Derived normalized task-state projection (Issue #14)
 │   ├── reporting/
-│   │   ├── report-model.ts    # Task and attempt observability report (Issue #15)
-│   │   └── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15)
+│   │   ├── report-model.ts    # Task and attempt observability report (Issue #15, #24)
+│   │   └── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15, #24)
 │   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
 │   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
 │   │   ├── verification-propose.ts  # Propose a verification spec as the operator

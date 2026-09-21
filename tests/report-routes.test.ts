@@ -28,7 +28,7 @@ describe('report routes', () => {
     createAttempt(task.id);
     getDb()
       .update(attempts)
-      .set({ prUrl: 'javascript:alert(1)' })
+      .set({ prUrl: 'javascript:alert(1)', prHeadSha: '123456789012abcdef' })
       .where(eq(attempts.taskId, task.id))
       .run();
   });
@@ -46,6 +46,8 @@ describe('report routes', () => {
       summary: { totalTasks: 1 },
       context: { databasePath: resolve('./test-database.db') },
     });
+    const reportPayload = JSON.parse(response.payload) as { ledger: unknown[] };
+    expect(reportPayload.ledger).toHaveLength(1);
   });
 
   it('ignores the removed run-kind query parameter', async () => {
@@ -64,6 +66,11 @@ describe('report routes', () => {
     expect(response.payload).toContain('QUEUED');
     expect(response.payload).toContain('attempt_pending');
     expect(response.payload).toContain('javascript:alert(1)');
+    expect(response.payload).toContain('Remediation evidence ledger');
+    expect(response.payload).toContain('123456789012');
+    expect(response.payload).toContain('GitHub Checks');
+    expect(response.payload).not.toContain('SECRET_SCRIPT_BODY');
+    expect(response.payload).not.toContain('RAW_OUTPUT_SENTINEL');
     expect(response.payload).not.toContain('href="javascript:');
   });
 });

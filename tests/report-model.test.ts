@@ -12,6 +12,8 @@ import {
   markRunning,
   markSessionCreated,
   markVerifying,
+  recordSessionSnapshot,
+  recordStructuredOutput,
   recordPullRequest,
   recordVerification,
   setVerificationCandidate,
@@ -71,7 +73,17 @@ function verify(attemptId: number, sessionId: string, headSha = 'head') {
     status: 'passed',
     specShell: 'sh',
     specScript: script,
+    exitCode: 0,
+    evidenceUrl: `https://example.test/evidence/${sessionId}`,
     specSha256,
+    finishedAt: Date.now(),
+  });
+  recordVerification({
+    attemptId,
+    headSha,
+    kind: 'github_checks',
+    status: 'passed',
+    reason: 'checks_passed',
     finishedAt: Date.now(),
   });
   return completeVerifiedAttempt(attemptId, { headSha, specSha256 });
@@ -406,5 +418,141 @@ describe('report model', () => {
     for (const state of NORMALIZED_TASK_STATES) {
       expect(TASK_BUCKETS).toContain(bucketForState(state));
     }
+  });
+
+  describe('ledger', () => {
+    it('keeps command and GitHub Checks evidence separate for a verified task', () => {
+      const task = makeTask(30);
+      const attempt = attemptFor(task.id);
+      verify(attempt.id, 'ledger-verified');
+      recordSessionSnapshot(attempt.id, {
+        status: 'completed',
+        statusDetail: 'done',
+        acusConsumed: 2.5,
+        sessionUpdatedAt: Date.now(),
+      });
+
+      const row = buildReport({ now: Date.now() }).ledger[0];
+      expect(row?.state).toBe('VERIFIED');
+      expect(row?.current.verification.command?.status).toBe('passed');
+      expect(row?.current.verification.command?.specSha256).toBe(
+        row?.current.approval.approvedSha256
+      );
+      expect(row?.current.verification.command?.exitCode).toBe(0);
+      expect(row?.current.verification.githubChecks?.status).toBe('passed');
+      expect(row?.current.approval.approvedBy).toBe('operator');
+      expect(row?.current.approval.approvedAt).not.toBeNull();
+      expect(row?.current.acusConsumed).toBe(2.5);
+    });
+
+    it('separates verification of a superseded PR head as stale evidence', () => {
+      const task = makeTask(31);
+      const attempt = attemptFor(task.id);
+      verify(attempt.id, 'ledger-stale', 'head-a');
+      recordPullRequest(attempt.id, {
+        prUrl: `https://github.com/owner/repo/pull/${String(attempt.id)}`,
+        prNumber: attempt.id,
+        prState: 'open',
+        prHeadSha: 'head-b',
+      });
+
+      const row = buildReport({ now: Date.now() }).ledger[0];
+      expect(row?.current.verification.command).toBeNull();
+      expect(row?.current.verification.stale[0]).toMatchObject({
+        headSha: 'head-a',
+        status: 'passed',
+      });
+      expect(row?.state).toBe('PR_OPEN');
+      expect(row?.reason).toBe('verified_head_superseded');
+    });
+
+    it('preserves unknown ACU as null and omits raw verification payloads', () => {
+      const task = makeTask(32);
+      const attempt = attemptFor(task.id);
+      recordVerification({
+        attemptId: attempt.id,
+        headSha: 'redacted-head',
+        kind: 'command',
+        status: 'passed',
+        specScript: 'SECRET_SCRIPT_BODY',
+        evidenceSummary: 'RAW_OUTPUT_SENTINEL',
+      });
+
+      const report = buildReport({ now: Date.now() });
+      const row = report.ledger[0];
+      expect(row?.current.acusConsumed).toBeNull();
+      expect(JSON.stringify(row)).not.toContain('"acusConsumed":0');
+      expect(JSON.stringify(report)).not.toContain('SECRET_SCRIPT_BODY');
+      expect(JSON.stringify(report)).not.toContain('RAW_OUTPUT_SENTINEL');
+      expect(JSON.stringify(report)).not.toContain('evidenceSummary');
+      expect(JSON.stringify(report)).not.toContain('specScript');
+    });
+
+    it('includes failed, needs-human, no-action, and cancelled outcomes', () => {
+      const failed = makeTask(33);
+      completeAttempt(attemptFor(failed.id).id, 'failed', { reason: 'broken' });
+      const noAction = makeTask(34);
+      completeAttempt(attemptFor(noAction.id).id, 'no_action');
+      const cancelled = makeTask(35);
+      completeAttempt(attemptFor(cancelled.id).id, 'cancelled');
+      const escalated = makeTask(36);
+      const escalatedAttempt = attemptFor(escalated.id);
+      markDispatching(escalatedAttempt.id);
+      markSessionCreated(escalatedAttempt.id, { devinSessionId: 'ledger-escalated' });
+      markRunning(escalatedAttempt.id);
+      recordStructuredOutput(escalatedAttempt.id, {
+        raw: { outcome: 'needs_human' },
+        parsed: {
+          schema_version: 1,
+          outcome: 'needs_human',
+          pr_url: null,
+          diagnosis: 'needs review',
+          tests_run: [],
+          risks: [],
+          needs_human_reason: 'blocked on product decision',
+        },
+      });
+      completeAttempt(escalatedAttempt.id, 'escalated', { reason: 'needs review' });
+
+      const ledger = buildReport({ now: Date.now() }).ledger;
+      expect(ledger.find((row) => row.issueNumber === 33)?.state).toBe('FAILED');
+      expect(ledger.find((row) => row.issueNumber === 34)?.state).toBe('NO_ACTION');
+      expect(ledger.find((row) => row.issueNumber === 35)?.state).toBe('CANCELLED');
+      expect(ledger.find((row) => row.issueNumber === 36)).toMatchObject({
+        state: 'NEEDS_HUMAN',
+        current: { agentReported: { needsHumanReason: 'blocked on product decision' } },
+      });
+    });
+
+    it('keeps all attempts in ascending history while exposing the active current attempt', () => {
+      const task = makeTask(37);
+      const first = attemptFor(task.id);
+      markDispatching(first.id);
+      markSessionCreated(first.id, { devinSessionId: 'ledger-first' });
+      recordSessionSnapshot(first.id, {
+        status: 'failed',
+        statusDetail: null,
+        acusConsumed: 1.5,
+        sessionUpdatedAt: Date.now(),
+      });
+      completeAttempt(first.id, 'failed');
+      const second = createAttempt(task.id);
+      markDispatching(second.id);
+      markSessionCreated(second.id, { devinSessionId: 'ledger-second' });
+      markRunning(second.id);
+
+      const row = buildReport({ now: Date.now() }).ledger[0];
+      expect(row?.current.attemptNumber).toBe(2);
+      expect(row?.history).toHaveLength(2);
+      expect(row?.history[0]?.acusConsumed).toBe(1.5);
+    });
+
+    it('keeps ledger order aligned with task rows', () => {
+      const task = makeTask(38);
+      const report = buildReport({ now: Date.now() });
+      expect(report.tasks.length).toBe(report.ledger.length);
+      expect(report.ledger.map((row) => row.taskId)).toEqual(report.tasks.map((row) => row.taskId));
+      expect(report.ledger[0]?.taskId).toBe(task.id);
+    });
   });
 });
