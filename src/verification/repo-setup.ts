@@ -91,10 +91,19 @@ function requirementsSha256(cwd: string): string {
   }
 }
 
+function remainingMs(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    throw new SetupError('setup_timeout', 'Repository setup exceeded its total timeout');
+  }
+  return remaining;
+}
+
 export const supersetSetupAdapter: RepoSetupAdapter = {
   name: 'superset',
   async setup(workspace, opts) {
-    await requireBinary('uv', workspace.cwd, opts.timeoutMs);
+    const deadline = Date.now() + opts.timeoutMs;
+    await requireBinary('uv', workspace.cwd, remainingMs(deadline));
     const venvDir = path.join(workspace.cwd, '.venv');
     const markerPath = path.join(venvDir, REQUIREMENTS_MARKER);
     const requirementsSha = requirementsSha256(workspace.cwd);
@@ -112,14 +121,14 @@ export const supersetSetupAdapter: RepoSetupAdapter = {
       await runSetupCommand(
         ['uv', 'venv', '.venv', '--python', '3.12'],
         workspace.cwd,
-        opts.timeoutMs,
+        remainingMs(deadline),
         'venv_failed'
       );
     }
     await runSetupCommand(
       ['uv', 'pip', 'install', '-r', REQUIREMENTS_FILE],
       workspace.cwd,
-      opts.timeoutMs,
+      remainingMs(deadline),
       'install_failed'
     );
     fs.writeFileSync(markerPath, `${requirementsSha}\n`);
