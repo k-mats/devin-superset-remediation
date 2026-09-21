@@ -34,6 +34,7 @@ describe('checkoutExactSha', () => {
     git(['init', '-b', 'main']);
     git(['config', 'user.email', 'test@example.com']);
     git(['config', 'user.name', 'Test']);
+    git(['config', 'commit.gpgsign', 'false']);
     fs.writeFileSync(path.join(remote, 'file.txt'), 'one');
     git(['add', 'file.txt']);
     git(['commit', '-m', 'first']);
