@@ -116,6 +116,7 @@ export interface Report {
     totalTasks: number;
     byBucket: Record<TaskBucket, number>;
     byState: Record<NormalizedTaskState, number>;
+    terminalWithoutTimestamp: number;
   };
   throughput: {
     tasksDiscovered: WindowCounts;
@@ -193,6 +194,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
   const stateCounts = emptyStateCounts();
   const rows: ReportTaskRow[] = [];
   let tasksWithoutAttempts = 0;
+  let terminalWithoutTimestamp = 0;
 
   for (const task of taskRows) {
     const attemptRows = listAttempts(task.id, db);
@@ -226,9 +228,15 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       ...attemptRows.map((attempt) => attempt.updatedAt),
       ...verificationTimestamps
     );
-    const terminalAt = TERMINAL_BUCKETS.includes(bucket)
-      ? (currentAttempt.completedAt ?? lastUpdatedAt)
-      : null;
+    const terminalAt =
+      TERMINAL_BUCKETS.includes(bucket) && currentAttempt.completedAt !== null
+        ? currentAttempt.completedAt
+        : TERMINAL_BUCKETS.includes(bucket) &&
+            (currentProjection.state === 'VERIFICATION_FAILED' ||
+              currentProjection.state === 'VERIFIED') &&
+            latestCommand
+          ? (latestCommand.finishedAt ?? latestCommand.createdAt)
+          : null;
     const row: ReportTaskRow = {
       taskId: task.id,
       repoOwner: task.repoOwner,
@@ -252,6 +260,9 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     rows.push(row);
     bucketCounts[row.bucket] += 1;
     stateCounts[row.state] += 1;
+    if (TERMINAL_BUCKETS.includes(row.bucket) && row.terminalAt === null) {
+      terminalWithoutTimestamp += 1;
+    }
   }
 
   const filteredAttemptRows = rows.flatMap((row) => row.attempts);
@@ -276,7 +287,12 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       generatedAt,
     },
     unit: { summary: 'tasks', throughput: 'tasks', attempts: 'attempts' },
-    summary: { totalTasks: rows.length, byBucket: bucketCounts, byState: stateCounts },
+    summary: {
+      totalTasks: rows.length,
+      byBucket: bucketCounts,
+      byState: stateCounts,
+      terminalWithoutTimestamp,
+    },
     throughput: {
       tasksDiscovered: countWindow(rows.map((row) => row.discoveredAt)),
       tasksReachedTerminal: countWindow(rows.map((row) => row.terminalAt)),

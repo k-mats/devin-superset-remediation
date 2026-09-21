@@ -94,6 +94,7 @@ a{color:#0969da}details{margin-top:.4rem}ul,ol{margin:.3rem 0;padding-left:1.3re
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
 <h2>Throughput</h2>
 <table><thead><tr><th>Measure</th><th>24h</th><th>7d</th></tr></thead><tbody>${throughputRows}</tbody></table>
+<p class="muted">${String(report.summary.terminalWithoutTimestamp)} terminal task(s) have no persisted terminal timestamp and are excluded from terminal throughput / cycle time.</p>
 <p>Median intake→terminal cycle time: ${escapeHtml(formatDuration(report.cycleTime.medianMsIntakeToTerminal))} (n=${String(report.cycleTime.sampleSize)})</p>
 <h2>Tasks (${String(report.summary.totalTasks)})</h2>
 <table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="7">No tasks</td></tr>'}</tbody></table>

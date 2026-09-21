@@ -125,7 +125,7 @@ describe('report model', () => {
     expect(row.bucket).toBe('active');
   });
 
-  it('counts a derived terminal state while the attempt is verifying', () => {
+  it('surfaces a derived terminal state without a persisted timestamp', () => {
     const task = makeTask(3);
     const attempt = attemptFor(task.id);
     markDispatching(attempt.id);
@@ -143,10 +143,44 @@ describe('report model', () => {
     const row = taskRow(report);
 
     expect(row.bucket).toBe('needs_human');
-    expect(row.terminalAt).not.toBeNull();
-    expect(row.terminalAt).toBe(row.lastUpdatedAt);
-    expect(report.throughput.tasksReachedTerminal.last24h).toBe(1);
-    expect(report.cycleTime.sampleSize).toBe(1);
+    expect(row.terminalAt).toBeNull();
+    expect(report.summary.terminalWithoutTimestamp).toBe(1);
+    expect(report.throughput.tasksReachedTerminal.last24h).toBe(0);
+    expect(report.cycleTime.sampleSize).toBe(0);
+  });
+
+  it('uses decisive failed verification time for a verifying terminal state', () => {
+    const task = makeTask(6);
+    const attempt = attemptFor(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'session-failed-verification' });
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/6',
+      prNumber: 6,
+      prState: 'open',
+      prHeadSha: 'head-failed',
+    });
+    markVerifying(attempt.id);
+    const script = 'echo failed';
+    const specSha256 = hashVerificationSpec('sh', script);
+    setVerificationCandidate(attempt.id, { shell: 'sh', script }, 'operator');
+    approveVerificationSpec(attempt.id, specSha256, 'operator');
+    const verificationTimestamp = 2_000_000;
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'head-failed',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: script,
+      specSha256,
+      finishedAt: verificationTimestamp,
+    });
+
+    const row = taskRow(buildReport({ now: Date.now() }));
+    expect(row.state).toBe('VERIFICATION_FAILED');
+    expect(row.terminalAt).toBe(verificationTimestamp);
   });
 
   it.each([
