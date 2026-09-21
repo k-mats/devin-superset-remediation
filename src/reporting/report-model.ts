@@ -1,7 +1,9 @@
+import { resolve } from 'node:path';
 import { asc } from 'drizzle-orm';
-import { RUN_KINDS, type Attempt, type AttemptOutcome, type RunKind, tasks } from '../db/schema.js';
-import { findLatestVerification, listAttempts, type DbExecutor } from '../db/task-state.js';
+import { config } from '../config.js';
 import { getDb } from '../db/client.js';
+import { tasks, type Attempt, type AttemptOutcome } from '../db/schema.js';
+import { findLatestVerification, listAttempts, type DbExecutor } from '../db/task-state.js';
 import {
   NORMALIZED_TASK_STATES,
   projectTaskState,
@@ -54,7 +56,6 @@ export interface ReportAttemptRow {
   id: number;
   attemptNumber: number;
   correlationId: string;
-  runKind: RunKind;
   state: Attempt['state'];
   outcome: AttemptOutcome | null;
   outcomeReason: string | null;
@@ -78,7 +79,6 @@ export interface ReportTaskRow {
   issueNumber: number;
   issueUrl: string;
   title: string | null;
-  runKind: RunKind;
   state: NormalizedTaskState;
   reason: string;
   bucket: TaskBucket;
@@ -93,10 +93,6 @@ export interface ReportTaskRow {
   verifiedAt: number | null;
 }
 
-export interface ReportFilter {
-  runKinds: RunKind[];
-}
-
 export interface WindowCounts {
   last24h: number;
   last7d: number;
@@ -104,14 +100,18 @@ export interface WindowCounts {
 
 export interface Report {
   generatedAt: string;
-  filter: ReportFilter;
+  context: {
+    databasePath: string;
+    nodeEnv: string;
+    repository: string | null;
+    generatedAt: string;
+  };
   unit: { summary: 'tasks'; throughput: 'tasks'; attempts: 'attempts' };
   summary: {
     totalTasks: number;
     byBucket: Record<TaskBucket, number>;
     byState: Record<NormalizedTaskState, number>;
   };
-  runKindBreakdown: Record<RunKind, number>;
   throughput: {
     tasksDiscovered: WindowCounts;
     tasksReachedTerminal: WindowCounts;
@@ -123,7 +123,6 @@ export interface Report {
   tasksWithoutAttempts: number;
 }
 
-const defaultFilter: ReportFilter = { runKinds: ['real'] };
 const dayMs = 24 * 60 * 60 * 1000;
 
 function emptyBucketCounts(): Record<TaskBucket, number> {
@@ -140,16 +139,11 @@ function emptyStateCounts(): Record<NormalizedTaskState, number> {
   >;
 }
 
-function emptyRunKindCounts(): Record<RunKind, number> {
-  return Object.fromEntries(RUN_KINDS.map((runKind) => [runKind, 0])) as Record<RunKind, number>;
-}
-
 function toAttemptRow(attempt: Attempt, projection: TaskStateProjection): ReportAttemptRow {
   return {
     id: attempt.id,
     attemptNumber: attempt.attemptNumber,
     correlationId: attempt.correlationId,
-    runKind: attempt.runKind,
     state: attempt.state,
     outcome: attempt.outcome,
     outcomeReason: attempt.outcomeReason,
@@ -185,19 +179,13 @@ function latestAttempt(attemptRows: Attempt[]): Attempt {
   return attempt;
 }
 
-export function buildReport(options: {
-  filter?: ReportFilter;
-  now?: number;
-  db?: DbExecutor;
-}): Report {
+export function buildReport(options: { now?: number; db?: DbExecutor }): Report {
   const db = options.db ?? getDb();
   const now = options.now ?? Date.now();
-  const filter = options.filter ?? defaultFilter;
-  const allowed = new Set(filter.runKinds);
+  const generatedAt = new Date(now).toISOString();
   const taskRows = db.select().from(tasks).orderBy(asc(tasks.id)).all();
   const bucketCounts = emptyBucketCounts();
   const stateCounts = emptyStateCounts();
-  const runKindBreakdown = emptyRunKindCounts();
   const rows: ReportTaskRow[] = [];
   let tasksWithoutAttempts = 0;
 
@@ -236,7 +224,6 @@ export function buildReport(options: {
       issueNumber: task.issueNumber,
       issueUrl: `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`,
       title: task.title,
-      runKind: currentAttempt.runKind,
       state: currentProjection.state,
       reason: currentProjection.reason,
       bucket,
@@ -250,12 +237,9 @@ export function buildReport(options: {
       terminalAt,
       verifiedAt,
     };
-    runKindBreakdown[row.runKind] += 1;
-    if (allowed.has(row.runKind)) {
-      rows.push(row);
-      bucketCounts[row.bucket] += 1;
-      stateCounts[row.state] += 1;
-    }
+    rows.push(row);
+    bucketCounts[row.bucket] += 1;
+    stateCounts[row.state] += 1;
   }
 
   const filteredAttemptRows = rows.flatMap((row) => row.attempts);
@@ -266,13 +250,21 @@ export function buildReport(options: {
   const cycleTimes = rows.flatMap((row) =>
     row.terminalAt === null ? [] : [row.terminalAt - row.discoveredAt]
   );
+  const repository =
+    config.githubRepoOwner && config.githubRepoName
+      ? `${config.githubRepoOwner}/${config.githubRepoName}`
+      : null;
 
   return {
-    generatedAt: new Date(now).toISOString(),
-    filter: { runKinds: [...filter.runKinds] },
+    generatedAt,
+    context: {
+      databasePath: resolve(config.databasePath),
+      nodeEnv: config.nodeEnv,
+      repository,
+      generatedAt,
+    },
     unit: { summary: 'tasks', throughput: 'tasks', attempts: 'attempts' },
     summary: { totalTasks: rows.length, byBucket: bucketCounts, byState: stateCounts },
-    runKindBreakdown,
     throughput: {
       tasksDiscovered: countWindow(rows.map((row) => row.discoveredAt)),
       tasksReachedTerminal: countWindow(rows.map((row) => row.terminalAt)),

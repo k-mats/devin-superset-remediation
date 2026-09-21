@@ -1,5 +1,4 @@
 import type { Report, ReportAttemptRow } from './report-model.js';
-import { RUN_KINDS } from '../db/schema.js';
 
 export function escapeHtml(value: string): string {
   return value
@@ -19,14 +18,6 @@ function formatDuration(durationMs: number | null): string {
   return `${String(Math.round(durationMs / 1000))}s`;
 }
 
-function runKindLabel(runKinds: readonly string[]): string {
-  return runKinds.length === 0 ? 'none' : runKinds.join(',');
-}
-
-function filterLink(label: string, runKinds: readonly string[]): string {
-  return `<a href="/dashboard?run_kind=${encodeURIComponent(runKinds.join(','))}">${escapeHtml(label)}</a>`;
-}
-
 function renderAttempt(attempt: ReportAttemptRow): string {
   const session = attempt.devinSessionUrl
     ? `<a href="${escapeHtml(attempt.devinSessionUrl)}">session</a>`
@@ -34,11 +25,10 @@ function renderAttempt(attempt: ReportAttemptRow): string {
   const pr = attempt.prUrl
     ? `<a href="${escapeHtml(attempt.prUrl)}">PR${attempt.prNumber === null ? '' : ` #${String(attempt.prNumber)}`}</a> (${escapeHtml(attempt.prState ?? 'unknown')})`
     : '—';
-  return `<li>#${String(attempt.attemptNumber)} · ${escapeHtml(attempt.runKind)} · ${escapeHtml(attempt.state)} · ${escapeHtml(attempt.outcome ?? '—')} · ${session} · ${pr}</li>`;
+  return `<li>#${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} · ${escapeHtml(attempt.outcome ?? '—')} · ${session} · ${pr}</li>`;
 }
 
 export function renderDashboard(report: Report): string {
-  const filter = report.filter.runKinds;
   const summaryCards = [
     ['Active', report.summary.byBucket.active],
     ['Successful (VERIFIED)', report.summary.byBucket.successful],
@@ -52,9 +42,6 @@ export function renderDashboard(report: Report): string {
         `<div class="card"><strong>${String(count)}</strong><span>${escapeHtml(String(label))} tasks</span></div>`
     )
     .join('');
-  const breakdown = RUN_KINDS.map(
-    (runKind) => `${escapeHtml(runKind)}: ${String(report.runKindBreakdown[runKind])}`
-  ).join(' · ');
   const taskRows = report.tasks
     .map((task) => {
       const issue = `<a href="${escapeHtml(task.issueUrl)}">#${String(task.issueNumber)}</a> ${escapeHtml(task.title ?? '(untitled)')}`;
@@ -68,7 +55,7 @@ export function renderDashboard(report: Report): string {
         task.attemptCount > 1
           ? `<details><summary>Attempt history</summary><ol>${task.attempts.map(renderAttempt).join('')}</ol></details>`
           : '';
-      return `<tr><td>${issue}</td><td><strong>${escapeHtml(task.state)}</strong><small>${escapeHtml(task.reason)}</small></td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${escapeHtml(task.runKind)}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
+      return `<tr><td>${issue}</td><td><strong>${escapeHtml(task.state)}</strong><small>${escapeHtml(task.reason)}</small></td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
     })
     .join('');
   const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
@@ -101,15 +88,15 @@ a{color:#0969da}details{margin-top:.4rem}ul,ol{margin:.3rem 0;padding-left:1.3re
 </head>
 <body><main>
 <h1>Remediation dashboard</h1>
-<p class="muted">Generated ${escapeHtml(report.generatedAt)} · Filter: ${escapeHtml(runKindLabel(filter))} · ${filterLink('real', ['real'])} | ${filterLink('real+demo', ['real', 'demo'])} | ${filterLink('all', RUN_KINDS)}</p>
-<p>Run-kind breakdown: ${breakdown}</p>
+<p class="muted">Data source: ${escapeHtml(report.context.databasePath)} · env: ${escapeHtml(report.context.nodeEnv)} · repo: ${escapeHtml(report.context.repository ?? '—')}</p>
+<p class="muted">Generated ${escapeHtml(report.context.generatedAt)} · <a href="">Refresh</a></p>
 <div class="cards">${summaryCards}</div>
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
 <h2>Throughput</h2>
 <table><thead><tr><th>Measure</th><th>24h</th><th>7d</th></tr></thead><tbody>${throughputRows}</tbody></table>
 <p>Median intake→terminal cycle time: ${escapeHtml(formatDuration(report.cycleTime.medianMsIntakeToTerminal))} (n=${String(report.cycleTime.sampleSize)})</p>
 <h2>Tasks (${String(report.summary.totalTasks)})</h2>
-<table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Run kind</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="8">No tasks</td></tr>'}</tbody></table>
-<p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)} · <a href="">Refresh</a></p>
+<table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="7">No tasks</td></tr>'}</tbody></table>
+<p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)}</p>
 </main></body></html>`;
 }
