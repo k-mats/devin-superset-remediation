@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import path from 'node:path';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { config } from '../src/config.js';
-import { attempts, tasks, type Attempt, type Task } from '../src/db/schema.js';
+import { attempts, tasks, verifications, type Attempt, type Task } from '../src/db/schema.js';
 import { GitHubApiError, type GitHubIssue } from '../src/github/client.js';
 import type { CreateSessionRequest, SessionResponse } from '../src/devin/client.js';
 
@@ -118,6 +118,7 @@ describe('Devin dispatcher', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });
@@ -347,7 +348,7 @@ describe('Devin dispatcher', () => {
     markDispatching(old.id);
     markSessionCreated(old.id, { devinSessionId: 'old' });
     markRunning(old.id);
-    completeAttempt(old.id, 'succeeded');
+    completeAttempt(old.id, 'failed');
     const before = getAttempt(old.id);
 
     const devin = fakeDevin();
@@ -388,6 +389,40 @@ describe('Devin dispatcher', () => {
     expect(request?.prompt).toContain('schema_version');
   });
 
+  it('records an issue verification spec as an unapproved candidate at dispatch', async () => {
+    await intakeIssueOnce();
+    const { attempt, task } = pendingAttempt();
+    const body = 'Fix it\n\n## Verification\n\n```bash\npytest -k x\n```\n';
+    const opts = dispatchOptions({
+      github: { getIssue: vi.fn(() => Promise.resolve(issue({ body }))) },
+    });
+
+    const decision = await dispatchAttempt(attempt, task, opts);
+
+    expect(decision).toBe('dispatched');
+    const updated = getAttempt(attempt.id);
+    expect(updated).toMatchObject({
+      verificationCandidateSource: 'issue_verification_section',
+      verificationCandidateShell: 'bash',
+      verificationCandidateScript: 'pytest -k x',
+      verificationApprovedSha256: null,
+      verificationApprovedBy: null,
+      verificationApprovedScript: null,
+    });
+    expect(updated?.verificationCandidateSha256).not.toBeNull();
+  });
+
+  it('leaves verification columns empty when the issue body has no spec at dispatch', async () => {
+    await intakeIssueOnce();
+    const { attempt, task } = pendingAttempt();
+
+    await dispatchAttempt(attempt, task, dispatchOptions());
+
+    const updated = getAttempt(attempt.id);
+    expect(updated?.verificationCandidateSha256).toBeNull();
+    expect(updated?.verificationApprovedSha256).toBeNull();
+  });
+
   it('truncates the session title to 120 characters', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
     const attempt = createAttempt(task.id);
@@ -410,18 +445,13 @@ describe('Devin dispatcher', () => {
     const dispatchLogger = logger();
     const devin = fakeDevin();
 
-    // Fail only the second UPDATE: the claim write succeeds, the
-    // session_created write in markSessionCreated throws.
+    // Fail inside the persistence transaction: the claim write succeeds, the
+    // transactional session_created + verification spec write throws.
     const realDb = getDb();
     const flakyDb = Object.create(realDb) as Db;
-    let updateCalls = 0;
-    flakyDb.update = ((table: Parameters<Db['update']>[0]) => {
-      updateCalls += 1;
-      if (updateCalls === 2) {
-        throw new Error('write failed');
-      }
-      return realDb.update(table);
-    }) as Db['update'];
+    flakyDb.transaction = () => {
+      throw new Error('write failed');
+    };
     const opts = dispatchOptions({ devin, logger: dispatchLogger }, flakyDb);
 
     const decision = await dispatchAttempt(attempt, task, opts);
@@ -589,6 +619,16 @@ describe('prompt and tag builders', () => {
       agentRisks: null,
       needsHumanReason: null,
       structuredOutputAcceptedAt: null,
+      verificationCandidateShell: null,
+      verificationCandidateScript: null,
+      verificationCandidateSha256: null,
+      verificationCandidateSource: null,
+      verificationCandidateUpdatedAt: null,
+      verificationApprovedShell: null,
+      verificationApprovedScript: null,
+      verificationApprovedSha256: null,
+      verificationApprovedAt: null,
+      verificationApprovedBy: null,
     } satisfies Attempt;
 
     const prompt = buildSessionPrompt(task, issue({ body: null }), attempt);

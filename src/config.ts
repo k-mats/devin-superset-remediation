@@ -19,6 +19,14 @@ const configSchema = z.object({
   devinTrackingIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
   devinSessionStaleWarnMs: z.coerce.number().int().min(0).max(2_147_483_647).default(21_600_000),
   devinMaxAcuPerSession: z.coerce.number().positive().default(5),
+  verificationEnabled: z
+    .preprocess((value) => (value === 'false' || value === '0' ? false : value), z.coerce.boolean())
+    .default(true),
+  verificationWorkspaceRoot: z.string().default('./data/verification'),
+  verificationCommandTimeoutMs: z.coerce.number().int().min(0).default(900_000),
+  verificationSetupTimeoutMs: z.coerce.number().int().min(0).default(1_800_000),
+  verificationCheckoutTimeoutMs: z.coerce.number().int().min(0).default(300_000),
+  verificationMaxOutputBytes: z.coerce.number().int().positive().default(16_384),
 });
 
 // Treat blank env vars (e.g. `DEVIN_API_URL=` in .env) as unset so defaults apply.
@@ -49,6 +57,12 @@ export function loadConfig(): Config {
     devinTrackingIntervalMs: envValue('DEVIN_TRACKING_INTERVAL_MS'),
     devinSessionStaleWarnMs: envValue('DEVIN_SESSION_STALE_WARN_MS'),
     devinMaxAcuPerSession: envValue('DEVIN_MAX_ACU_PER_SESSION'),
+    verificationEnabled: envValue('VERIFICATION_ENABLED'),
+    verificationWorkspaceRoot: envValue('VERIFICATION_WORKSPACE_ROOT'),
+    verificationCommandTimeoutMs: envValue('VERIFICATION_COMMAND_TIMEOUT_MS'),
+    verificationSetupTimeoutMs: envValue('VERIFICATION_SETUP_TIMEOUT_MS'),
+    verificationCheckoutTimeoutMs: envValue('VERIFICATION_CHECKOUT_TIMEOUT_MS'),
+    verificationMaxOutputBytes: envValue('VERIFICATION_MAX_OUTPUT_BYTES'),
   });
 }
 

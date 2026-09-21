@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { closeDb, runMigrations } from '../src/db/client.js';
 import { config } from '../src/config.js';
 import {
-  completeAttempt,
+  approveVerificationSpec,
+  completeVerifiedAttempt,
   createAttempt,
   findStaleDispatchingAttempts,
   getTaskByIdentity,
@@ -13,9 +14,13 @@ import {
   markDispatching,
   markRunning,
   markSessionCreated,
+  markVerifying,
   recordPullRequest,
+  recordVerification,
+  setVerificationCandidate,
   upsertTask,
 } from '../src/db/task-state.js';
+import { hashVerificationSpec } from '../src/verification/spec.js';
 
 const thisFile = fileURLToPath(import.meta.url);
 
@@ -41,7 +46,20 @@ function write() {
     prState: 'open',
     prHeadSha: 'demo-sha',
   });
-  completeAttempt(first.id, 'succeeded');
+  markVerifying(first.id);
+  const demoSpecSha = hashVerificationSpec('sh', 'echo ok');
+  setVerificationCandidate(first.id, { shell: 'sh', script: 'echo ok' }, 'operator');
+  approveVerificationSpec(first.id, demoSpecSha, 'operator');
+  recordVerification({
+    attemptId: first.id,
+    headSha: 'demo-sha',
+    kind: 'command',
+    status: 'passed',
+    specShell: 'sh',
+    specScript: 'echo ok',
+    specSha256: demoSpecSha,
+  });
+  completeVerifiedAttempt(first.id, { headSha: 'demo-sha', specSha256: demoSpecSha });
   const second = createAttempt(task.id);
   markDispatching(second.id);
 

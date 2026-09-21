@@ -45,8 +45,10 @@ verification/reporting
 ### Verification/Reporting
 
 - Confirms pull request was created
-- Reports status back to the team
-- TBD - reporting mechanism (GitHub comment, dashboard, etc.)
+- Independently re-runs an approved verification command against the exact
+  pull request head in an isolated git workspace and evaluates GitHub check
+  runs
+- Records every evaluation as an append-only `verifications` row
 
 ## Persistence
 
@@ -72,6 +74,69 @@ orchestrator outcome (`outcome`) are four separate concepts. A verified PR
 enters `verifying` while it is tracked independently from the agent report;
 the orchestrator only completes the attempt after the lifecycle decision is
 made.
+
+### Verification
+
+Independent verification (Issue #13) keeps two kinds of state on `attempts`: a
+_candidate_ spec (`verification_candidate_*` columns with source and timestamp)
+and an _approved_ spec (`verification_approved_*` columns with approver and
+timestamp). A candidate can come from a `## Verification` fenced block in the
+issue body, from the agent's reported `tests_run` commands (candidate only —
+agent-reported commands are never executed without an operator approval via
+`pnpm verification:approve`), or from `pnpm verification:propose` (operator).
+Every source — including a `## Verification` section already present at
+dispatch time — produces a _candidate_ only; the issue-defined spec is
+surfaced as the preferred candidate but is never approved automatically.
+Operator candidates are never overwritten by later issue edits. Removing or
+breaking the `## Verification` section clears an issue-derived candidate
+(back to `no_candidate`); operator candidates are never cleared by issue
+edits. When the
+candidate's sha256 matches the approved sha256 the spec is approved; a changed
+candidate automatically falls back to `pending_approval` because the hashes
+differ. Applying the `devin-ready` label is _not_ command approval — it only
+authorizes dispatching remediation. The single rule is: no shell verification
+command executes without an explicit `pnpm verification:approve` of its exact
+hash.
+
+While an attempt is in `verifying`, each tracking pass evaluates two signals
+for the current PR head and appends them to the `verifications` table
+(attempt-scoped, append-only history, never updated or deleted):
+
+- `github_checks`: the commit's check runs and combined status. Missing checks
+  are `unverified`/`no_checks`, pending are `unverified`/`checks_pending`,
+  failures are `failed`, and otherwise `passed`. Rows are deduplicated per
+  (attempt, head) when the status and reason are unchanged.
+- `command`: the approved spec executed in an isolated workspace
+  (`VERIFICATION_WORKSPACE_ROOT/<owner>__<repo>`) checked out at the exact PR
+  head SHA. Missing specs record `unverified`/`no_approved_verification_spec`;
+  pending approvals record `unverified`/`verification_spec_pending_approval`;
+  infrastructure problems record `error` (`checkout_failed`, `setup_failed`,
+  `spawn_failed`, `timeout`). `passed`/`failed` rows are idempotent per head —
+  a new head SHA triggers a fresh run with the same approved spec.
+
+Semantics: missing or unverified is _not_ success. `failed`, `unverified`, and
+`error` all leave the attempt in `verifying` to be retried on the next poll;
+only a `passed` command verification completes the attempt as `succeeded` with
+reason `independent_verification_passed: <sha>`; `completeAttempt` rejects the
+`succeeded` outcome outright — the only path is `completeVerifiedAttempt`,
+which re-validates the verifying state, head SHA, and approved spec hash and
+requires a recorded `passed` command row for that head and spec. Before completing, the PR
+head is re-fetched — if it moved during the run, the recorded pass applies to
+the old head, the new head is stored, and the attempt stays `verifying` for
+the next poll. A previously recorded `passed` row for the current head also
+repairs an attempt left in `verifying` (e.g. after a crash between the run
+and the state transition). Completion is additionally guarded by a
+superseded-spec check: if the candidate or approved spec changed while the
+command ran, the `passed` row is recorded but the attempt stays `verifying`.
+
+Safety: only the approved spec ever executes — never the current candidate —
+inside a per-repo clone with a minimal environment (`PATH`, `HOME`, locale,
+`CI=1`, `GIT_TERMINAL_PROMPT=0`; application secrets are never propagated), a
+process-group kill on timeout, and bounded captured output. A repository setup
+adapter (`resolveSetupAdapter`; `superset` gets a `uv`-managed `.venv`, all
+others a no-op) prepares the workspace before the command runs. The Superset
+venv is keyed to a `.requirements-sha256` marker — a changed
+`requirements/development.txt` between heads recreates it before install.
 
 Each dispatched session is created with `structured_output_required` and a
 JSON Schema (version 1, defined in `src/devin/structured-output.ts`)

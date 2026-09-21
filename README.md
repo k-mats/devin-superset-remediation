@@ -29,6 +29,49 @@ This project implements an automated system that:
 
 - Node.js 24.21.0
 - pnpm 12.4.2
+- For independent verification of remediations (Issue #13): `git`, `uv`
+  (`pip install uv`), and Python 3.12. The `superset` repository setup adapter
+  additionally builds some wheels from source and needs:
+  `apt-get install pkg-config default-libmysqlclient-dev libldap2-dev libsasl2-dev libffi-dev libssl-dev gcc g++ make`
+
+### Verification specs
+
+Issues can propose a verification command in a
+`## Verification` (or `#`/`###`) section containing a fenced code block tagged
+`bash` (run via `bash -euo pipefail`) or `sh`/`shell`/untagged (run via
+`sh -eu`):
+
+    ## Verification
+
+    ```bash
+    source .venv/bin/activate && pytest tests/unit_tests/ -k my_test
+    ```
+
+The block's content is hashed (sha256) and stored per attempt as a
+_candidate_; it is never approved automatically (`devin-ready` authorizes
+remediation, not shell commands). Every candidate — issue section,
+agent-reported tests, or operator proposal — stays `pending_approval` until an
+operator runs `pnpm verification:approve --attempt <id> --spec-hash <sha256>`,
+and only the approved spec ever executes
+(inspect with `pnpm verification:show --attempt <id>`, propose a spec with
+`pnpm verification:propose --attempt <id> --command "<cmd>"`).
+Removing or breaking the `## Verification` section clears an issue-derived
+candidate; operator candidates are never cleared or overwritten by issue
+edits.
+
+#### Known limitations of the verification runner
+
+- **Not a security sandbox.** The approved command runs PR-head code in an
+  isolated checkout with a scrubbed environment (no application secrets), a
+  timeout, and process-group cleanup, but it still has host filesystem and
+  network access. This is accepted only because verification targets a
+  trusted public fork; before pointing the runner at untrusted repositories
+  or PR code, run it inside a container/sandbox with restricted filesystem,
+  credentials, and network.
+- **Public repositories only.** The runner clones over unauthenticated HTTPS
+  with `GIT_TERMINAL_PROMPT=0`; private repositories are out of scope and
+  surface as a visible `error/checkout_failed` verification row, never as
+  success.
 
 ### Installation
 
@@ -188,6 +231,13 @@ pnpm demo:tracking -- --attempt <id>
 
 See [docs/evidence/issue-11-session-pr-lifecycle.md](docs/evidence/issue-11-session-pr-lifecycle.md)
 for live-run evidence.
+
+One independent verification pass for a single `verifying` attempt (Issue #13)
+can be triggered with:
+
+```bash
+pnpm demo:verification --attempt <id>          # append [--rerun] to re-execute even after a recorded result
+```
 
 ### Devin API smoke test (Issue #5)
 

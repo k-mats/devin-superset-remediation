@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,13 +7,17 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
-import { attempts, tasks } from '../src/db/schema.js';
+import { attempts, tasks, verifications } from '../src/db/schema.js';
 import {
   ActiveAttemptExistsError,
+  approveVerificationSpec,
   claimAttemptForDispatch,
+  clearVerificationCandidate,
   completeAttempt,
+  completeVerifiedAttempt,
   createAttempt,
   findCompletedAttemptsWithTrackedPullRequests,
+  findLatestVerification,
   findPendingAttempts,
   findStaleDispatchingAttempts,
   getAttemptByCorrelationId,
@@ -21,15 +25,38 @@ import {
   InvalidTransitionError,
   StructuredOutputAlreadyAcceptedError,
   listAttempts,
+  listVerifications,
   markDispatching,
+  markVerifying,
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
   PullRequestMismatchError,
   recordStructuredOutput,
   recordPullRequest,
+  recordVerification,
+  setVerificationCandidate,
   upsertTask,
+  VerificationSpecMismatchError,
 } from '../src/db/task-state.js';
+import { hashVerificationSpec } from '../src/verification/spec.js';
+
+function verifyAttempt(attemptId: number, headSha = 'sha', script = 'echo ok') {
+  const specSha256 = hashVerificationSpec('sh', script);
+  markVerifying(attemptId);
+  setVerificationCandidate(attemptId, { shell: 'sh', script }, 'operator');
+  approveVerificationSpec(attemptId, specSha256, 'operator');
+  recordVerification({
+    attemptId,
+    headSha,
+    kind: 'command',
+    status: 'passed',
+    specShell: 'sh',
+    specScript: script,
+    specSha256,
+  });
+  return specSha256;
+}
 
 describe('task state repository', () => {
   beforeAll(() => {
@@ -38,6 +65,7 @@ describe('task state repository', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.delete(verifications).run();
     db.delete(attempts).run();
     db.delete(tasks).run();
   });
@@ -68,7 +96,8 @@ describe('task state repository', () => {
       prState: 'open',
       prHeadSha: 'sha',
     });
-    const completed = completeAttempt(attempt.id, 'succeeded');
+    const specSha256 = verifyAttempt(attempt.id);
+    const completed = completeVerifiedAttempt(attempt.id, { headSha: 'sha', specSha256 });
 
     expect(dispatching.dispatchedAt).toEqual(expect.any(Number));
     expect(sessionCreated.sessionCreatedAt).toEqual(expect.any(Number));
@@ -98,7 +127,7 @@ describe('task state repository', () => {
       prState: 'open',
       prHeadSha: 'sha',
     });
-    completeAttempt(first.id, 'succeeded');
+    completeAttempt(first.id, 'failed');
     const second = createAttempt(task.id);
     markDispatching(second.id);
 
@@ -149,7 +178,7 @@ describe('task state repository', () => {
         prHeadSha: 'def',
       })
     ).toThrow(PullRequestMismatchError);
-    completeAttempt(attempt.id, 'succeeded');
+    completeAttempt(attempt.id, 'failed');
 
     const repositoryChanged = createAttempt(task.id);
     markDispatching(repositoryChanged.id);
@@ -166,12 +195,12 @@ describe('task state repository', () => {
         prHeadSha: 'ghi',
       })
     ).toThrow(PullRequestMismatchError);
-    completeAttempt(repositoryChanged.id, 'succeeded');
+    completeAttempt(repositoryChanged.id, 'failed');
 
     const urlOnly = createAttempt(task.id);
     markDispatching(urlOnly.id);
     markSessionCreated(urlOnly.id, { devinSessionId: 'url-only-session' });
-    completeAttempt(urlOnly.id, 'succeeded');
+    completeAttempt(urlOnly.id, 'failed');
     rawDb
       .prepare('UPDATE attempts SET pr_url = ?, pr_number = NULL WHERE id = ?')
       .run('https://github.com/other/project/pull/42/', urlOnly.id);
@@ -275,7 +304,7 @@ describe('task state repository', () => {
     markSessionCreated(attempt.id, { devinSessionId: 'valid' });
     markRunning(attempt.id);
     expect(() => markDispatching(attempt.id)).toThrow(InvalidTransitionError);
-    completeAttempt(attempt.id, 'succeeded');
+    completeAttempt(attempt.id, 'failed');
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
     expect(() =>
       recordPullRequest(attempt.id, {
@@ -368,13 +397,23 @@ describe('task state repository', () => {
     });
   });
 
-  it('requires a session for succeeded attempts', () => {
+  it('rejects succeeded via completeAttempt even for a verifying attempt with a session', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const attempt = createAttempt(task.id);
-    markDispatching(attempt.id);
 
     expect(() => completeAttempt(attempt.id, 'succeeded')).toThrow(InvalidTransitionError);
-    expect(completeAttempt(attempt.id, 'failed').outcome).toBe('failed');
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'sess-succeeded' });
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'sha',
+    });
+    markVerifying(attempt.id);
+    expect(() => completeAttempt(attempt.id, 'succeeded')).toThrow(InvalidTransitionError);
+    expect(getDb().select().from(attempts).all()[0]?.state).toBe('verifying');
   });
 
   it('enforces database constraints', () => {
@@ -583,7 +622,7 @@ describe('task state repository', () => {
     markRunning(first.id);
     expect(() => createAttempt(task.id)).toThrow(ActiveAttemptExistsError);
 
-    completeAttempt(first.id, 'succeeded');
+    completeAttempt(first.id, 'failed');
     expect(createAttempt(task.id).state).toBe('pending');
   });
 
@@ -747,7 +786,7 @@ describe('task state repository', () => {
       const attempt = createAttempt(task.id);
       markDispatching(attempt.id);
       markSessionCreated(attempt.id, { devinSessionId: `legacy-session-${String(attempt.id)}` });
-      completeAttempt(attempt.id, 'succeeded');
+      completeAttempt(attempt.id, 'failed');
       rawDb
         .prepare('UPDATE attempts SET pr_url = ?, pr_number = ?, pr_state = ? WHERE id = ?')
         .run('https://github.com/owner/repo/pull/42', 42, prState, attempt.id);
@@ -767,5 +806,355 @@ describe('task state repository', () => {
     expect(
       findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
     ).not.toContain(merged);
+  });
+});
+
+describe('verification candidate and approval state', () => {
+  beforeAll(() => {
+    runMigrations();
+  });
+
+  beforeEach(() => {
+    const db = getDb();
+    db.delete(verifications).run();
+    db.delete(attempts).run();
+    db.delete(tasks).run();
+  });
+
+  afterAll(() => {
+    closeDb();
+  });
+
+  const candidate = (script: string) => ({
+    shell: 'sh' as const,
+    script,
+    sha256: createHash('sha256').update(`sh\n${script}`).digest('hex'),
+  });
+
+  it('sets, idempotently keeps, and overwrites the verification candidate', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+
+    const first = setVerificationCandidate(attempt.id, candidate('echo one'), 'operator');
+    expect(first.verificationCandidateSha256).toBe(candidate('echo one').sha256);
+    expect(first.verificationCandidateSource).toBe('operator');
+    expect(first.verificationCandidateUpdatedAt).toEqual(expect.any(Number));
+
+    const same = setVerificationCandidate(
+      attempt.id,
+      candidate('echo one'),
+      'issue_verification_section'
+    );
+    expect(same.verificationCandidateUpdatedAt).toBe(first.verificationCandidateUpdatedAt);
+    expect(same.verificationCandidateSource).toBe('operator');
+
+    const changed = setVerificationCandidate(attempt.id, candidate('echo two'), 'agent_tests_run');
+    expect(changed.verificationCandidateSha256).toBe(candidate('echo two').sha256);
+    expect(changed.verificationCandidateSource).toBe('agent_tests_run');
+  });
+
+  it('approves only a hash matching the current candidate', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    expect(() => approveVerificationSpec(attempt.id, 'deadbeef', 'operator')).toThrow(
+      VerificationSpecMismatchError
+    );
+
+    const proposed = candidate('echo hi');
+    setVerificationCandidate(attempt.id, proposed, 'operator');
+    expect(() => approveVerificationSpec(attempt.id, 'deadbeef', 'operator')).toThrow(
+      VerificationSpecMismatchError
+    );
+
+    const approved = approveVerificationSpec(attempt.id, proposed.sha256, 'operator');
+    expect(approved.verificationApprovedSha256).toBe(proposed.sha256);
+    expect(approved.verificationApprovedScript).toBe(proposed.script);
+    expect(approved.verificationApprovedBy).toBe('operator');
+    expect(approved.verificationApprovedAt).toEqual(expect.any(Number));
+  });
+
+  it('returns to pending approval when the candidate changes', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const first = candidate('echo v1');
+    setVerificationCandidate(attempt.id, first, 'operator');
+    approveVerificationSpec(attempt.id, first.sha256, 'operator');
+
+    const second = candidate('echo v2');
+    const updated = setVerificationCandidate(attempt.id, second, 'operator');
+    expect(updated.verificationCandidateSha256).toBe(second.sha256);
+    expect(updated.verificationApprovedSha256).toBe(first.sha256);
+  });
+
+  it('records, lists, and finds verification rows', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'sha-a',
+      kind: 'github_checks',
+      status: 'unverified',
+      reason: 'no_checks',
+    });
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'sha-a',
+      kind: 'command',
+      status: 'passed',
+      specShell: 'bash',
+      specScript: 'echo ok',
+      specSha256: 'abc',
+      exitCode: 0,
+    });
+    recordVerification({
+      attemptId: attempt.id,
+      headSha: 'sha-b',
+      kind: 'command',
+      status: 'failed',
+      exitCode: 1,
+    });
+
+    expect(listVerifications(attempt.id)).toHaveLength(3);
+    expect(findLatestVerification(attempt.id, 'sha-a', 'command')).toMatchObject({
+      status: 'passed',
+      specSha256: 'abc',
+    });
+    expect(findLatestVerification(attempt.id, 'sha-b', 'command')).toMatchObject({
+      status: 'failed',
+      exitCode: 1,
+    });
+    expect(findLatestVerification(attempt.id, 'sha-c', 'command')).toBeUndefined();
+  });
+
+  it('enforces candidate and approval check constraints', () => {
+    const sqlite = getRawDb();
+    if (!sqlite) throw new Error('Database not initialized');
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const timestamp = Date.now();
+
+    expect(() =>
+      sqlite
+        .prepare('UPDATE attempts SET verification_candidate_sha256 = ? WHERE id = ?')
+        .run('abc', attempt.id)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare('UPDATE attempts SET verification_candidate_source = ? WHERE id = ?')
+        .run('bogus', attempt.id)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          'UPDATE attempts SET verification_approved_sha256 = ?, verification_approved_shell = ?, verification_approved_script = ?, verification_approved_at = ? WHERE id = ?'
+        )
+        .run('abc', 'sh', 'x', timestamp, attempt.id)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          'INSERT INTO verifications (attempt_id, head_sha, kind, status, created_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(attempt.id, 'sha', 'bogus', 'passed', timestamp)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          'INSERT INTO verifications (attempt_id, head_sha, kind, status, created_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(attempt.id, 'sha', 'command', 'bogus', timestamp)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          `UPDATE attempts SET verification_candidate_shell = 'zsh',
+             verification_candidate_script = 'x', verification_candidate_sha256 = 'h',
+             verification_candidate_source = 'operator', verification_candidate_updated_at = ?
+           WHERE id = ?`
+        )
+        .run(timestamp, attempt.id)
+    ).toThrow();
+    expect(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO verifications (attempt_id, head_sha, kind, status, spec_shell, created_at)
+           VALUES (?, 'sha', 'command', 'passed', 'zsh', ?)`
+        )
+        .run(attempt.id, timestamp)
+    ).toThrow();
+  });
+
+  it('recomputes the candidate hash and ignores a caller-supplied sha256', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const bogusSha = hashVerificationSpec('sh', 'echo b');
+    const callerSpec = { shell: 'sh' as const, script: 'echo a', sha256: bogusSha };
+
+    const updated = setVerificationCandidate(attempt.id, callerSpec, 'operator');
+    const realSha = hashVerificationSpec('sh', 'echo a');
+    expect(updated.verificationCandidateSha256).toBe(realSha);
+    expect(() => approveVerificationSpec(attempt.id, bogusSha, 'operator')).toThrow(
+      VerificationSpecMismatchError
+    );
+  });
+
+  it('treats an equal-hash non-operator proposal as a no-op over an issue candidate', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const issueCandidate = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo ok' },
+      'issue_verification_section'
+    );
+
+    const unchanged = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo ok' },
+      'agent_tests_run'
+    );
+    expect(unchanged).toEqual(issueCandidate);
+    expect(unchanged.verificationCandidateSource).toBe('issue_verification_section');
+  });
+
+  it('clearVerificationCandidate with onlySource mismatch is a no-op', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    const withCandidate = setVerificationCandidate(
+      attempt.id,
+      { shell: 'sh', script: 'echo op' },
+      'operator'
+    );
+
+    const unchanged = clearVerificationCandidate(attempt.id, {
+      onlySource: 'issue_verification_section',
+    });
+    expect(unchanged).toEqual(withCandidate);
+
+    const cleared = clearVerificationCandidate(attempt.id, { onlySource: 'operator' });
+    expect(cleared.verificationCandidateSha256).toBeNull();
+    expect(cleared.verificationCandidateSource).toBeNull();
+  });
+});
+
+describe('completeVerifiedAttempt', () => {
+  beforeAll(() => {
+    runMigrations();
+  });
+
+  beforeEach(() => {
+    const db = getDb();
+    db.delete(verifications).run();
+    db.delete(attempts).run();
+    db.delete(tasks).run();
+  });
+
+  afterAll(() => {
+    closeDb();
+  });
+
+  function verifiedAttempt() {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'sess-verified' });
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    return attempt.id;
+  }
+
+  it('completes a verifying attempt on the happy path', () => {
+    const attemptId = verifiedAttempt();
+    const specSha256 = verifyAttempt(attemptId, 'sha-1');
+
+    const completed = completeVerifiedAttempt(attemptId, {
+      headSha: 'sha-1',
+      specSha256,
+    });
+    expect(completed).toMatchObject({ state: 'completed', outcome: 'succeeded' });
+    expect(completed.outcomeReason).toBe('independent_verification_passed: sha-1');
+  });
+
+  it('throws when the passed row is for a different head sha', () => {
+    const attemptId = verifiedAttempt();
+    const specSha256 = verifyAttempt(attemptId, 'sha-2');
+
+    expect(() => completeVerifiedAttempt(attemptId, { headSha: 'sha-1', specSha256 })).toThrow(
+      InvalidTransitionError
+    );
+    expect(() => completeVerifiedAttempt(attemptId, { headSha: 'sha-2', specSha256 })).toThrow(
+      InvalidTransitionError
+    );
+    expect(getDb().select().from(attempts).all()[0]?.state).toBe('verifying');
+  });
+
+  it('throws when the latest row for the head and spec is a later failure', () => {
+    const attemptId = verifiedAttempt();
+    const specSha256 = verifyAttempt(attemptId, 'sha-1');
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: 'echo ok',
+      specSha256,
+    });
+
+    expect(() => completeVerifiedAttempt(attemptId, { headSha: 'sha-1', specSha256 })).toThrow(
+      InvalidTransitionError
+    );
+    expect(getDb().select().from(attempts).all()[0]?.state).toBe('verifying');
+  });
+
+  it('succeeds when a passed row supersedes an earlier failure', () => {
+    const attemptId = verifiedAttempt();
+    const script = 'echo ok';
+    const specSha256 = hashVerificationSpec('sh', script);
+    markVerifying(attemptId);
+    setVerificationCandidate(attemptId, { shell: 'sh', script }, 'operator');
+    approveVerificationSpec(attemptId, specSha256, 'operator');
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'failed',
+      specShell: 'sh',
+      specScript: script,
+      specSha256,
+    });
+    recordVerification({
+      attemptId,
+      headSha: 'sha-1',
+      kind: 'command',
+      status: 'passed',
+      specShell: 'sh',
+      specScript: script,
+      specSha256,
+    });
+
+    const completed = completeVerifiedAttempt(attemptId, {
+      headSha: 'sha-1',
+      specSha256,
+    });
+    expect(completed).toMatchObject({ state: 'completed', outcome: 'succeeded' });
+  });
+
+  it('throws when the spec is approved but no passed row exists', () => {
+    const attemptId = verifiedAttempt();
+    const script = 'echo ok';
+    const specSha256 = hashVerificationSpec('sh', script);
+    markVerifying(attemptId);
+    setVerificationCandidate(attemptId, { shell: 'sh', script }, 'operator');
+    approveVerificationSpec(attemptId, specSha256, 'operator');
+
+    expect(() => completeVerifiedAttempt(attemptId, { headSha: 'sha-1', specSha256 })).toThrow(
+      InvalidTransitionError
+    );
   });
 });

@@ -31,6 +31,12 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinTrackingIntervalMs: 0,
     devinSessionStaleWarnMs: 21_600_000,
     devinMaxAcuPerSession: 5,
+    verificationEnabled: true,
+    verificationWorkspaceRoot: './data/verification',
+    verificationCommandTimeoutMs: 900_000,
+    verificationSetupTimeoutMs: 1_800_000,
+    verificationCheckoutTimeoutMs: 300_000,
+    verificationMaxOutputBytes: 16_384,
     ...overrides,
   };
 }

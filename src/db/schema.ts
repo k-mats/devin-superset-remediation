@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm';
-import { check, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  check,
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import { z } from 'zod';
 import type { AgentOutcome, StructuredOutput } from '../devin/structured-output.js';
 
@@ -80,6 +88,18 @@ export const attempts = sqliteTable(
     agentRisks: text('agent_risks', { mode: 'json' }).$type<string[]>(),
     needsHumanReason: text('needs_human_reason'),
     structuredOutputAcceptedAt: integer('structured_output_accepted_at'),
+    verificationCandidateShell: text('verification_candidate_shell').$type<'bash' | 'sh'>(),
+    verificationCandidateScript: text('verification_candidate_script'),
+    verificationCandidateSha256: text('verification_candidate_sha256'),
+    verificationCandidateSource: text(
+      'verification_candidate_source'
+    ).$type<VerificationCandidateSource>(),
+    verificationCandidateUpdatedAt: integer('verification_candidate_updated_at'),
+    verificationApprovedShell: text('verification_approved_shell').$type<'bash' | 'sh'>(),
+    verificationApprovedScript: text('verification_approved_script'),
+    verificationApprovedSha256: text('verification_approved_sha256'),
+    verificationApprovedAt: integer('verification_approved_at'),
+    verificationApprovedBy: text('verification_approved_by'),
   },
   (table) => [
     uniqueIndex('attempts_task_attempt_unique').on(table.taskId, table.attemptNumber),
@@ -118,6 +138,77 @@ export const attempts = sqliteTable(
       'attempts_pr_state_check',
       sql`${table.prState} IS NULL OR ${table.prState} IN ('open', 'closed', 'merged')`
     ),
+    check(
+      'attempts_verification_candidate_source_check',
+      sql`${table.verificationCandidateSource} IS NULL OR ${table.verificationCandidateSource} IN ('issue_verification_section', 'agent_tests_run', 'operator')`
+    ),
+    check(
+      'attempts_verification_candidate_shell_check',
+      sql`${table.verificationCandidateShell} IS NULL OR ${table.verificationCandidateShell} IN ('bash', 'sh')`
+    ),
+    check(
+      'attempts_verification_approved_shell_check',
+      sql`${table.verificationApprovedShell} IS NULL OR ${table.verificationApprovedShell} IN ('bash', 'sh')`
+    ),
+    check(
+      'attempts_verification_candidate_check',
+      sql`(${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateShell} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateScript} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateSource} IS NULL) AND (${table.verificationCandidateSha256} IS NULL) = (${table.verificationCandidateUpdatedAt} IS NULL)`
+    ),
+    check(
+      'attempts_verification_approved_check',
+      sql`(${table.verificationApprovedSha256} IS NULL) = (${table.verificationApprovedShell} IS NULL) AND (${table.verificationApprovedSha256} IS NULL) = (${table.verificationApprovedScript} IS NULL) AND (${table.verificationApprovedSha256} IS NULL) = (${table.verificationApprovedAt} IS NULL) AND (${table.verificationApprovedSha256} IS NULL) = (${table.verificationApprovedBy} IS NULL)`
+    ),
+  ]
+);
+
+export const VERIFICATION_CANDIDATE_SOURCES = [
+  'issue_verification_section',
+  'agent_tests_run',
+  'operator',
+] as const;
+export const verificationCandidateSourceSchema = z.enum(VERIFICATION_CANDIDATE_SOURCES);
+export type VerificationCandidateSource = z.infer<typeof verificationCandidateSourceSchema>;
+
+export const VERIFICATION_KINDS = ['command', 'github_checks'] as const;
+export const verificationKindSchema = z.enum(VERIFICATION_KINDS);
+export type VerificationKind = z.infer<typeof verificationKindSchema>;
+
+export const VERIFICATION_STATUSES = ['passed', 'failed', 'unverified', 'error'] as const;
+export const verificationStatusSchema = z.enum(VERIFICATION_STATUSES);
+export type VerificationStatus = z.infer<typeof verificationStatusSchema>;
+
+export const verifications = sqliteTable(
+  'verifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    attemptId: integer('attempt_id')
+      .notNull()
+      .references(() => attempts.id, { onDelete: 'restrict' }),
+    headSha: text('head_sha').notNull(),
+    kind: text('kind').$type<VerificationKind>().notNull(),
+    status: text('status').$type<VerificationStatus>().notNull(),
+    reason: text('reason'),
+    specShell: text('spec_shell').$type<'bash' | 'sh'>(),
+    specScript: text('spec_script'),
+    specSha256: text('spec_sha256'),
+    exitCode: integer('exit_code'),
+    evidenceUrl: text('evidence_url'),
+    evidenceSummary: text('evidence_summary'),
+    startedAt: integer('started_at'),
+    finishedAt: integer('finished_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (table) => [
+    index('verifications_attempt_head_kind_index').on(table.attemptId, table.headSha, table.kind),
+    check('verifications_kind_check', sql`${table.kind} IN ('command', 'github_checks')`),
+    check(
+      'verifications_status_check',
+      sql`${table.status} IN ('passed', 'failed', 'unverified', 'error')`
+    ),
+    check(
+      'verifications_spec_shell_check',
+      sql`${table.specShell} IS NULL OR ${table.specShell} IN ('bash', 'sh')`
+    ),
   ]
 );
 
@@ -125,3 +216,5 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type Attempt = typeof attempts.$inferSelect;
 export type NewAttempt = typeof attempts.$inferInsert;
+export type Verification = typeof verifications.$inferSelect;
+export type NewVerification = typeof verifications.$inferInsert;

@@ -10,10 +10,12 @@ import {
   findPendingAttempts,
   markSessionCreated,
   releaseDispatchClaim,
+  setVerificationCandidate,
   type Db,
 } from '../db/task-state.js';
 import { isEligibleIssue } from '../intake/github-intake.js';
 import { structuredOutputJsonSchema } from '../devin/structured-output.js';
+import { parseVerificationSpec } from '../verification/spec.js';
 
 export type DispatchDecision =
   | 'dispatched'
@@ -157,12 +159,18 @@ export async function dispatchAttempt(
     return 'session_create_failed';
   }
 
+  const specResult = parseVerificationSpec(issue.body);
   try {
-    markSessionCreated(
-      attempt.id,
-      { devinSessionId: session.session_id, devinSessionUrl: session.url },
-      db
-    );
+    db.transaction((tx) => {
+      markSessionCreated(
+        attempt.id,
+        { devinSessionId: session.session_id, devinSessionUrl: session.url },
+        tx
+      );
+      if (specResult.ok) {
+        setVerificationCandidate(attempt.id, specResult.spec, 'issue_verification_section', tx);
+      }
+    });
   } catch (error: unknown) {
     // The session exists server-side; keep the id in the log so the Issue #20
     // reconciliation pass can recover this dispatching attempt.

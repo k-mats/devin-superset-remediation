@@ -17,6 +17,10 @@ import {
 } from '../db/task-state.js';
 import { collectStructuredOutput } from '../outcome/collect-structured-output.js';
 import { verifyAgentPullRequest } from '../outcome/verify-pull-request.js';
+import {
+  verifyRemediationOnce,
+  type VerifyRemediationOptions,
+} from '../verification/verify-remediation.js';
 
 export type TrackingDecision =
   | 'snapshot_only'
@@ -27,6 +31,11 @@ export type TrackingDecision =
   | 'verifying'
   | 'pr_refreshed'
   | 'pr_lookup_deferred'
+  | 'verification_passed'
+  | 'verification_failed'
+  | 'verification_unverified'
+  | 'verification_error'
+  | 'verification_skipped'
   | 'failed';
 
 export interface TrackingResult {
@@ -40,15 +49,21 @@ export interface TrackingResult {
   verifying: number;
   prRefreshed: number;
   prLookupDeferred: number;
+  verificationPassed: number;
+  verificationFailed: number;
+  verificationUnverified: number;
+  verificationError: number;
   failed: number;
 }
 
 export interface SessionTrackerOptions {
   devin: Pick<DevinClient, 'getSession'>;
-  github: Pick<GitHubClient, 'getPullRequest'>;
+  github: Pick<GitHubClient, 'getPullRequest'> &
+    Partial<Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
   staleWarnMs: number;
+  verification?: Omit<VerifyRemediationOptions, 'logger' | 'db' | 'github'>;
 }
 
 export function toEpochMs(value: number): number {
@@ -101,6 +116,25 @@ async function refreshPullRequest(
   }
 }
 
+async function maybeVerifyRemediation(
+  attempt: Attempt,
+  task: Task,
+  opts: SessionTrackerOptions,
+  db: Db
+): Promise<TrackingDecision | undefined> {
+  if (attempt.state !== 'verifying' || opts.verification === undefined) return undefined;
+  const decision = await verifyRemediationOnce(attempt, task, {
+    ...opts.verification,
+    github: opts.github as Pick<
+      GitHubClient,
+      'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
+    >,
+    logger: opts.logger,
+    db,
+  });
+  return decision === 'verification_skipped' ? undefined : decision;
+}
+
 export async function trackAttemptOnce(
   attempt: Attempt,
   task: Task,
@@ -129,10 +163,13 @@ export async function trackAttemptOnce(
       { ...context, err: error },
       'Devin session lookup failed for verifying attempt; refreshing pull request'
     );
-    const current = getAttempt(attempt.id, db);
+    let current = getAttempt(attempt.id, db);
     if (!current || current.state !== 'verifying') return 'failed';
     const refreshed = await refreshPullRequest(current, task, opts, db);
-    return refreshed ?? 'failed';
+    if (refreshed !== 'pr_refreshed') return refreshed ?? 'failed';
+    current = getAttempt(current.id, db);
+    if (!current) return refreshed;
+    return (await maybeVerifyRemediation(current, task, opts, db)) ?? refreshed;
   }
   let current = getAttempt(attempt.id, db);
   if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after snapshot`);
@@ -223,9 +260,19 @@ export async function trackAttemptOnce(
   }
 
   current = getAttempt(current.id, db);
+  let deferred = false;
   if (!enteredVerifying && current?.state === 'verifying' && current.prUrl !== null) {
     const refreshed = await refreshPullRequest(current, task, opts, db);
     if (refreshed) decision = refreshed;
+    deferred = refreshed === 'pr_lookup_deferred';
+  }
+
+  current = current ? getAttempt(current.id, db) : undefined;
+  if (current && !deferred) {
+    const verificationDecision = await maybeVerifyRemediation(current, task, opts, db);
+    if (verificationDecision !== undefined) {
+      decision = verificationDecision;
+    }
   }
   return decision;
 }
@@ -239,6 +286,10 @@ function countDecision(result: TrackingResult, decision: TrackingDecision) {
   else if (decision === 'verifying') result.verifying += 1;
   else if (decision === 'pr_refreshed') result.prRefreshed += 1;
   else if (decision === 'pr_lookup_deferred') result.prLookupDeferred += 1;
+  else if (decision === 'verification_passed') result.verificationPassed += 1;
+  else if (decision === 'verification_failed') result.verificationFailed += 1;
+  else if (decision === 'verification_unverified') result.verificationUnverified += 1;
+  else if (decision === 'verification_error') result.verificationError += 1;
   else result.failed += 1;
 }
 
@@ -257,6 +308,10 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     verifying: 0,
     prRefreshed: 0,
     prLookupDeferred: 0,
+    verificationPassed: 0,
+    verificationFailed: 0,
+    verificationUnverified: 0,
+    verificationError: 0,
     failed: 0,
   };
 

@@ -201,3 +201,106 @@ describe('migration 0005 against a pre-existing database', () => {
     }
   });
 });
+
+describe('migration 0006 against a pre-existing database', () => {
+  it('preserves existing rows and adds the verification columns and table', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-0006-'));
+    const sqlite = new Database(path.join(dir, 'legacy.db'));
+    try {
+      applyMigrations(sqlite, 6); // 0000..0005
+
+      const timestamp = Date.now();
+      const taskId = Number(
+        sqlite
+          .prepare(
+            'INSERT INTO tasks (repo_owner, repo_name, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          )
+          .run('owner', 'repo', 1, timestamp, timestamp).lastInsertRowid
+      );
+      const attemptId = Number(
+        sqlite
+          .prepare(
+            `INSERT INTO attempts
+               (task_id, attempt_number, correlation_id, state, outcome, devin_session_id,
+                devin_session_url, devin_session_status, acus_consumed, pr_url, pr_number,
+                pr_state, pr_head_sha, pr_last_checked_at, structured_output_raw, agent_outcome,
+                agent_pr_url, agent_tests_run, structured_output_accepted_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            taskId,
+            1,
+            randomUUID(),
+            'verifying',
+            null,
+            'sess-legacy',
+            'https://app.devin.ai/sessions/sess-legacy',
+            'running',
+            1.5,
+            'https://github.com/owner/repo/pull/9',
+            9,
+            'open',
+            'head-sha-9',
+            timestamp,
+            JSON.stringify({ schema_version: 1, outcome: 'remediated' }),
+            'remediated',
+            'https://github.com/owner/repo/pull/9',
+            JSON.stringify([{ command: 'pytest -k x', result: 'passed' }]),
+            timestamp,
+            timestamp,
+            timestamp
+          ).lastInsertRowid
+      );
+
+      migrate(drizzle(sqlite), { migrationsFolder: './drizzle' });
+
+      const row = sqlite.prepare('SELECT * FROM attempts WHERE id = ?').get(attemptId) as Record<
+        string,
+        unknown
+      >;
+      expect(row).toMatchObject({
+        task_id: taskId,
+        state: 'verifying',
+        devin_session_id: 'sess-legacy',
+        devin_session_url: 'https://app.devin.ai/sessions/sess-legacy',
+        devin_session_status: 'running',
+        acus_consumed: 1.5,
+        pr_url: 'https://github.com/owner/repo/pull/9',
+        pr_number: 9,
+        pr_state: 'open',
+        pr_head_sha: 'head-sha-9',
+        pr_last_checked_at: timestamp,
+        structured_output_raw: JSON.stringify({ schema_version: 1, outcome: 'remediated' }),
+        agent_outcome: 'remediated',
+        agent_pr_url: 'https://github.com/owner/repo/pull/9',
+        agent_tests_run: JSON.stringify([{ command: 'pytest -k x', result: 'passed' }]),
+        structured_output_accepted_at: timestamp,
+        verification_candidate_shell: null,
+        verification_candidate_script: null,
+        verification_candidate_sha256: null,
+        verification_candidate_source: null,
+        verification_candidate_updated_at: null,
+        verification_approved_shell: null,
+        verification_approved_script: null,
+        verification_approved_sha256: null,
+        verification_approved_at: null,
+        verification_approved_by: null,
+      });
+
+      sqlite
+        .prepare(
+          `INSERT INTO verifications (attempt_id, head_sha, kind, status, reason, spec_shell, spec_script, spec_sha256, exit_code, evidence_url, evidence_summary, started_at, finished_at, created_at)
+           VALUES (?, 'head-sha-9', 'command', 'passed', NULL, 'sh', 'echo ok', 'abc', 0, NULL, 'ok', ?, ?, ?)`
+        )
+        .run(attemptId, timestamp, timestamp, timestamp);
+      expect(
+        sqlite
+          .prepare('SELECT status, spec_sha256 FROM verifications WHERE attempt_id = ?')
+          .get(attemptId)
+      ).toEqual({ status: 'passed', spec_sha256: 'abc' });
+    } finally {
+      sqlite.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
