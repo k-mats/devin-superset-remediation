@@ -34,6 +34,10 @@ export const ATTEMPT_OUTCOMES = [
 export const attemptOutcomeSchema = z.enum(ATTEMPT_OUTCOMES);
 export type AttemptOutcome = z.infer<typeof attemptOutcomeSchema>;
 
+export const RUN_KINDS = ['real', 'demo', 'mock', 'unknown'] as const;
+export const runKindSchema = z.enum(RUN_KINDS);
+export type RunKind = z.infer<typeof runKindSchema>;
+
 export const tasks = sqliteTable(
   'tasks',
   {
@@ -60,6 +64,7 @@ export const attempts = sqliteTable(
       .references(() => tasks.id, { onDelete: 'restrict' }),
     attemptNumber: integer('attempt_number').notNull(),
     correlationId: text('correlation_id').notNull().unique(),
+    runKind: text('run_kind').$type<RunKind>().notNull().default('unknown'),
     state: text('state').$type<AttemptState>().notNull().default('pending'),
     outcome: text('outcome').$type<AttemptOutcome>(),
     outcomeReason: text('outcome_reason'),
@@ -117,6 +122,7 @@ export const attempts = sqliteTable(
       'attempts_outcome_check',
       sql`${table.outcome} IS NULL OR ${table.outcome} IN ('succeeded', 'failed', 'cancelled', 'escalated', 'no_action')`
     ),
+    check('attempts_run_kind_check', sql`${table.runKind} IN ('real', 'demo', 'mock', 'unknown')`),
     check(
       'attempts_completed_outcome_check',
       sql`(${table.state} = 'completed') = (${table.outcome} IS NOT NULL)`

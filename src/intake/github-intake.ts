@@ -53,12 +53,12 @@ export function intakeIssue(
       const existing = getTaskByIdentity(taskIdentity, tx);
       if (!existing) {
         const task = upsertTask({ ...taskIdentity, title: issue.title }, tx);
-        createAttempt(task.id, tx);
+        createAttempt(task.id, 'real', tx);
         return 'created';
       }
 
       if (listAttempts(existing.id, tx).length === 0) {
-        createAttempt(existing.id, tx);
+        createAttempt(existing.id, 'real', tx);
         return 'created';
       }
 

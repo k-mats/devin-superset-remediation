@@ -9,6 +9,7 @@ import {
   type Attempt,
   type AttemptOutcome,
   type AttemptState,
+  type RunKind,
   tasks,
   type Task,
   type Verification,
@@ -149,7 +150,7 @@ export function upsertTask(
   return task;
 }
 
-export function createAttempt(taskId: number, db: DbExecutor = getDb()): Attempt {
+export function createAttempt(taskId: number, runKind: RunKind, db: DbExecutor = getDb()): Attempt {
   try {
     const current = db
       .select({ maxAttemptNumber: max(attempts.attemptNumber) })
@@ -163,6 +164,7 @@ export function createAttempt(taskId: number, db: DbExecutor = getDb()): Attempt
         taskId,
         attemptNumber: (current?.maxAttemptNumber ?? 0) + 1,
         correlationId: randomUUID(),
+        runKind,
         state: 'pending',
         createdAt: timestamp,
         updatedAt: timestamp,

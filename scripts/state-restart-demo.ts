@@ -32,7 +32,7 @@ function write() {
     issueNumber: 101,
     title: 'Persistent task state demo',
   });
-  const first = createAttempt(task.id);
+  const first = createAttempt(task.id, 'demo');
   markDispatching(first.id);
   const sessionId = `demo-session-${first.correlationId}`;
   markSessionCreated(first.id, {
@@ -60,7 +60,7 @@ function write() {
     specSha256: demoSpecSha,
   });
   completeVerifiedAttempt(first.id, { headSha: 'demo-sha', specSha256: demoSpecSha });
-  const second = createAttempt(task.id);
+  const second = createAttempt(task.id, 'demo');
   markDispatching(second.id);
 
   console.log(
