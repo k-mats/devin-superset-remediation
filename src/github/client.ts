@@ -36,6 +36,42 @@ export const githubPullRequestSchema = z
 
 export type GitHubPullRequest = z.infer<typeof githubPullRequestSchema>;
 
+export const githubCheckRunsSchema = z
+  .object({
+    total_count: z.number().int().nonnegative(),
+    check_runs: z.array(
+      z
+        .object({
+          name: z.string(),
+          status: z.string(),
+          conclusion: z.string().nullable(),
+          html_url: z.string().nullish(),
+        })
+        .loose()
+    ),
+  })
+  .loose();
+
+export type GitHubCheckRuns = z.infer<typeof githubCheckRunsSchema>;
+
+export const githubCombinedStatusSchema = z
+  .object({
+    state: z.string(),
+    total_count: z.number().int().nonnegative(),
+    statuses: z.array(
+      z
+        .object({
+          context: z.string(),
+          state: z.string(),
+          target_url: z.string().nullish(),
+        })
+        .loose()
+    ),
+  })
+  .loose();
+
+export type GitHubCombinedStatus = z.infer<typeof githubCombinedStatusSchema>;
+
 export function derivePrState(pr: GitHubPullRequest): 'open' | 'closed' | 'merged' {
   return pr.merged_at != null ? 'merged' : pr.state;
 }
@@ -145,6 +181,38 @@ export class GitHubClient {
     }
 
     throw new Error(`GitHub API pagination exceeded the ${String(MAX_PAGES)}-page safety limit`);
+  }
+
+  async listCheckRuns(owner: string, repo: string, ref: string): Promise<GitHubCheckRuns> {
+    const checkRuns: GitHubCheckRuns['check_runs'] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const path = `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs?per_page=${String(this.perPage)}&page=${String(page)}`;
+      const json = await this.request(path);
+      const parsed = githubCheckRunsSchema.safeParse(json);
+      if (!parsed.success) {
+        throw new Error(
+          `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`
+        );
+      }
+      checkRuns.push(...parsed.data.check_runs);
+      if (parsed.data.check_runs.length < this.perPage) {
+        return { total_count: parsed.data.total_count, check_runs: checkRuns };
+      }
+    }
+
+    throw new Error(`GitHub API pagination exceeded the ${String(MAX_PAGES)}-page safety limit`);
+  }
+
+  async getCombinedStatus(owner: string, repo: string, ref: string): Promise<GitHubCombinedStatus> {
+    const path = `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/status`;
+    const json = await this.request(path);
+    const parsed = githubCombinedStatusSchema.safeParse(json);
+    if (!parsed.success) {
+      throw new Error(
+        `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`
+      );
+    }
+    return parsed.data;
   }
 }
 
