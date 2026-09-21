@@ -5,19 +5,20 @@
 Endpoint: `GET https://api.devin.ai/v3/organizations/{org_id}/sessions`
 (`SessionsQueryParams` in `https://docs.devin.ai/v3-openapi.yaml`; requires a
 service user with `ViewOrgSessions`). Probed with the repo-scoped
-`DEVIN_API_KEY` against `org-0186004a314f4041bbc5f8f1bc8e401d`.
+`DEVIN_API_KEY` against the project's Devin organization.
 
 Observed behaviour:
 
-- Credentials authorised: `200`, 35 sessions total in the org, 10 tagged
-  `devin-superset-remediation`, all with the full 5-tag set from
-  `buildSessionTags` intact (`tags` survive creation; `origin: api`).
+- Credentials authorised: `200`; the project-tagged sessions all carry the
+  full 5-tag set from `buildSessionTags` intact (`tags` survive creation;
+  `origin: api`).
 - `tags=correlation:<uuid>` → exactly **1** item (`total: 1`).
 - Matching is **exact and case-sensitive**: `tags=correlation:` → 0; partial
   uuid → 0; upper-cased tag → 0; comma-joined `a,b` → 0 (one literal tag).
 - Multiple `tags=` params are **OR**, not AND:
-  `tags=devin-superset-remediation&tags=<corr>` → 10;
-  `tags=<corr>&tags=nonexistent` → 1. The reconciler therefore queries the
+  `tags=<project-tag>&tags=<corr>` returned every project-tagged session,
+  not just the one; `tags=<corr>&tags=nonexistent` → 1. The reconciler
+  therefore queries the
   single correlation tag and verifies the full expected tag set client-side.
 - Pagination: `first` ≤ 200 (default 100), cursor `end_cursor`/`after`,
   `has_next_page`; `total` is present.

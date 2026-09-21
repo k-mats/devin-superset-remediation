@@ -252,8 +252,9 @@ When `createSession` fails or times out, a session may exist server-side
 without the orchestrator ever seeing its id; the attempt stays `dispatching`
 with a null `devin_session_id` and is never redispatched. A reconciliation
 poller periodically selects such attempts once their `dispatched_at` is older
-than `DEVIN_DISPATCH_GRACE_MS` (default 300000 milliseconds) and looks the
-session up on the provider instead of recreating it.
+than `DEVIN_DISPATCH_GRACE_MS` (default 300000 milliseconds; must exceed the
+30 s Devin request timeout) and looks the session up on the provider instead
+of recreating it.
 
 For each candidate the reconciler calls `GET
 /v3/organizations/{org_id}/sessions?tags=correlation:<uuid>&first=200` — the

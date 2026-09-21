@@ -15,6 +15,7 @@ import {
   listAttempts,
   markDispatching,
   upsertTask,
+  type Db,
 } from '../src/db/task-state.js';
 import { buildSessionTags } from '../src/dispatch/devin-dispatcher.js';
 import {
@@ -250,6 +251,34 @@ describe('uncertain dispatch reconciliation', () => {
     expect(devin.listSessions).toHaveBeenCalledTimes(1);
     expect(devin.createSession).not.toHaveBeenCalled();
     expect(listAttempts(task.id)).toHaveLength(1);
+  });
+
+  it('counts an unexpected persistence failure under failed, not lookup_unavailable', async () => {
+    const { task, attempt } = dispatchingAttempt();
+    const devin = fakeDevin([matchingSession(task, attempt)]);
+    // Fail inside markSessionCreated's read (the second select call, after
+    // the candidate join query) with a non-InvalidTransitionError.
+    const realDb = getDb();
+    const flakyDb = Object.create(realDb) as Db;
+    const realSelect = realDb.select.bind(realDb);
+    let selects = 0;
+    flakyDb.select = ((...args: Parameters<typeof realSelect>) => {
+      selects += 1;
+      if (selects > 1) throw new Error('db down');
+      return realSelect(...args);
+    }) as typeof realDb.select;
+
+    const result = await reconcileUncertainDispatchOnce(
+      reconcileOptions({ devin, db: flakyDb, now: staleNow(attempt) })
+    );
+
+    expect(result).toMatchObject({ candidates: 1, failed: 1, lookupUnavailable: 0, adopted: 0 });
+    expect(devin.listSessions).toHaveBeenCalledTimes(1);
+    expect(devin.createSession).not.toHaveBeenCalled();
+    expect(getAttempt(attempt.id)).toMatchObject({
+      state: 'dispatching',
+      devinSessionId: null,
+    });
   });
 
   it('treats a concurrently adopted session as already_adopted instead of throwing', async () => {

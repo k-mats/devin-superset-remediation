@@ -4,6 +4,8 @@ import type { Config } from '../config.js';
 const DEFAULT_BASE_URL = 'https://api.devin.ai/v3';
 const MAX_ERROR_BODY_LENGTH = 500;
 
+export const DEVIN_REQUEST_TIMEOUT_MS = 30_000;
+
 // Enums per the v3 OpenAPI spec (SessionResponse).
 export const SESSION_STATUSES = [
   'new',
@@ -130,7 +132,7 @@ export class DevinClient {
     this.orgId = opts.orgId;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.fetchFn = opts.fetchFn ?? globalThis.fetch;
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEVIN_REQUEST_TIMEOUT_MS;
   }
 
   private async request<T>(

@@ -27,6 +27,7 @@ export interface ReconciliationResult {
   ambiguous: number;
   identityMismatch: number;
   lookupUnavailable: number;
+  failed: number;
 }
 
 export interface ReconcileUncertainDispatchOptions {
@@ -167,6 +168,7 @@ export async function reconcileUncertainDispatchOnce(
     ambiguous: 0,
     identityMismatch: 0,
     lookupUnavailable: 0,
+    failed: 0,
   };
 
   if (rows.length === 0) {
@@ -186,7 +188,7 @@ export async function reconcileUncertainDispatchOnce(
         { err: error, ...logContext(attempt) },
         'Uncertain dispatch reconciliation failed for attempt'
       );
-      result.lookupUnavailable += 1;
+      result.failed += 1;
     }
   }
 
