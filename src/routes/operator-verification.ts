@@ -141,6 +141,7 @@ function sendPage(
   notice?: { level: 'error' | 'info'; message: string }
 ) {
   reply.type('text/html; charset=utf-8');
+  reply.header('Cache-Control', 'no-store');
   return reply.code(status).send(renderOperatorVerificationPage(view, notice));
 }
 
@@ -164,7 +165,6 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
     const db = dbForRequest();
     const view = loadView(parsed.data.attemptId, db, opts);
     if (!view) return reply.code(404).send({ error: 'attempt_or_task_not_found' });
-    reply.header('Cache-Control', 'no-store');
     return sendPage(reply, view);
   });
 
@@ -274,9 +274,14 @@ export const operatorVerificationRoutes: FastifyPluginCallback<OperatorVerificat
     });
     if (!result.ok) {
       const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);
-      return sendPage(reply, current ?? view, 409, {
+      const status = result.reason === 'pull_request_refresh_failed' ? 502 : 409;
+      const message =
+        result.reason === 'pull_request_refresh_failed'
+          ? 'Rerun unavailable: pull_request_refresh_failed (GitHub PR refresh failed; retry later)'
+          : `Rerun unavailable: ${result.reason}`;
+      return sendPage(reply, current ?? view, status, {
         level: 'error',
-        message: `Rerun unavailable: ${result.reason}`,
+        message,
       });
     }
     const current = loadView(parsedParams.data.attemptId, dbForRequest(), opts);

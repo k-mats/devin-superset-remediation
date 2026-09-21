@@ -297,6 +297,7 @@ describe('operator verification routes', () => {
       payload: new URLSearchParams({ spec_sha256: 'a'.repeat(64) }).toString(),
     });
     expect(stale.statusCode).toBe(409);
+    expect(stale.headers['cache-control']).toBe('no-store');
   });
 
   it('rejects approval without a candidate', async () => {
@@ -444,6 +445,7 @@ describe('operator verification routes', () => {
         url: `/operator/attempts/${String(attempt.id)}/verification/rerun`,
       });
       expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
       expect(response.payload).toContain('Rerun decision: verification_failed');
       expect(verify).toHaveBeenCalledOnce();
       expect(listVerifications(attempt.id)).toHaveLength(initialCount + 1);
@@ -455,6 +457,24 @@ describe('operator verification routes', () => {
     } finally {
       await rerunServer.close();
     }
+  });
+
+  it('returns 502 when GitHub PR refresh fails during rerun', async () => {
+    const { attempt } = verifyingAttempt();
+    const sha256 = candidate(attempt.id);
+    await postForm(`/operator/attempts/${String(attempt.id)}/verification/approve`, {
+      spec_sha256: sha256,
+    });
+    const refreshError = new Error('GitHub unavailable');
+    if (github === undefined) throw new Error('GitHub fixture was not initialized');
+    github.getPullRequest = vi.fn().mockRejectedValue(refreshError);
+    const response = await server.inject({
+      method: 'POST',
+      url: `/operator/attempts/${String(attempt.id)}/verification/rerun`,
+    });
+    expect(response.statusCode).toBe(502);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.payload).toContain('pull_request_refresh_failed');
   });
 
   it('returns 404 for an unknown attempt', async () => {

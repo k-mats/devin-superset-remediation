@@ -43,7 +43,8 @@ export type RerunVerificationResult =
         | 'task_not_found'
         | 'attempt_not_verifying'
         | 'no_approved_spec'
-        | 'no_pull_request';
+        | 'no_pull_request'
+        | 'pull_request_refresh_failed';
     };
 
 export async function rerunApprovedVerification(
@@ -64,7 +65,13 @@ export async function rerunApprovedVerification(
     return { ok: false, reason: 'no_approved_spec' };
   }
 
-  const refreshed = await refreshTrackedPullRequest(attempt, task, opts.github, opts.db);
+  let refreshed: Attempt;
+  try {
+    refreshed = await refreshTrackedPullRequest(attempt, task, opts.github, opts.db);
+  } catch (error: unknown) {
+    opts.logger.warn({ attemptId, err: error }, 'pull request refresh failed');
+    return { ok: false, reason: 'pull_request_refresh_failed' };
+  }
   if (!approvedSpec(refreshed)) {
     return { ok: false, reason: 'no_approved_spec' };
   }

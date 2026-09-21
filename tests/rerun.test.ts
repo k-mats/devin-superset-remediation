@@ -91,6 +91,53 @@ describe('rerunApprovedVerification', () => {
     );
   });
 
+  it('returns a refresh failure without invoking verification', async () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 64 });
+    const created = createAttempt(task.id);
+    markDispatching(created.id);
+    markSessionCreated(created.id, { devinSessionId: 'session' });
+    markRunning(created.id);
+    recordPullRequest(created.id, {
+      prUrl: 'https://github.com/owner/repo/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'old',
+    });
+    const attempt = markVerifying(created.id);
+    const script = 'echo ok';
+    const spec = { shell: 'sh' as const, script, sha256: hashVerificationSpec('sh', script) };
+    setVerificationCandidate(attempt.id, spec, 'operator');
+    approveVerificationSpec(attempt.id, spec.sha256, 'operator');
+    const refreshError = new Error('GitHub unavailable');
+    const verify = vi.fn();
+    const github = {
+      getIssue: vi.fn(),
+      listCheckRuns: vi.fn(),
+      getCombinedStatus: vi.fn(),
+      getPullRequest: vi.fn().mockRejectedValue(refreshError),
+    } as unknown as Pick<
+      GitHubClient,
+      'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
+    >;
+    const result = await rerunApprovedVerification(attempt.id, {
+      github,
+      logger,
+      db: getDb(),
+      workspaceRoot: './data/test-verification',
+      commandTimeoutMs: 100,
+      setupTimeoutMs: 100,
+      checkoutTimeoutMs: 100,
+      maxOutputBytes: 1000,
+      verify,
+    });
+    expect(result).toEqual({ ok: false, reason: 'pull_request_refresh_failed' });
+    expect(verify).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      { attemptId: attempt.id, err: refreshError },
+      'pull request refresh failed'
+    );
+  });
+
   it.each([['missing', 999999, 'attempt_not_found']] as const)(
     'returns %s precondition result',
     async (_name, attemptId, reason) => {
