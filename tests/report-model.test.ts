@@ -140,6 +140,40 @@ describe('report model', () => {
     expect(report.context.databasePath).toBe(resolve('./test-database.db'));
   });
 
+  it('includes verification evidence in lastUpdatedAt', () => {
+    const task = makeTask(5);
+    const attempt = attemptFor(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'session-verification' });
+    markRunning(attempt.id);
+    markVerifying(attempt.id);
+    const attemptUpdatedAt = 2_000_000;
+    db()
+      .update(attempts)
+      .set({ updatedAt: attemptUpdatedAt })
+      .where(eq(attempts.id, attempt.id))
+      .run();
+    db().update(tasks).set({ updatedAt: attemptUpdatedAt }).where(eq(tasks.id, task.id)).run();
+    const verification = recordVerification({
+      attemptId: attempt.id,
+      headSha: 'head',
+      kind: 'command',
+      status: 'failed',
+      reason: 'command_failed',
+      finishedAt: null,
+    });
+    const verificationTimestamp = attemptUpdatedAt + 1_000;
+    db()
+      .update(verifications)
+      .set({ createdAt: verificationTimestamp })
+      .where(eq(verifications.id, verification.id))
+      .run();
+
+    expect(taskRow(buildReport({ now: verificationTimestamp })).lastUpdatedAt).toBe(
+      verificationTimestamp
+    );
+  });
+
   it('counts discovered tasks in the requested throughput windows', () => {
     const task = makeTask(7);
     const now = Date.now();

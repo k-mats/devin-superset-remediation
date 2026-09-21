@@ -3,7 +3,12 @@ import { asc } from 'drizzle-orm';
 import { config } from '../config.js';
 import { getDb } from '../db/client.js';
 import { tasks, type Attempt, type AttemptOutcome } from '../db/schema.js';
-import { findLatestVerification, listAttempts, type DbExecutor } from '../db/task-state.js';
+import {
+  findLatestVerification,
+  listAttempts,
+  listVerifications,
+  type DbExecutor,
+} from '../db/task-state.js';
 import {
   NORMALIZED_TASK_STATES,
   projectTaskState,
@@ -197,6 +202,11 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     }
     const currentAttempt = latestAttempt(attemptRows);
     const currentProjection = projectTaskState(currentAttempt, db);
+    const verificationTimestamps = attemptRows.flatMap((attempt) =>
+      listVerifications(attempt.id, db).map(
+        (verification) => verification.finishedAt ?? verification.createdAt
+      )
+    );
     const reportAttempts = attemptRows.map((attempt) =>
       toAttemptRow(attempt, projectTaskState(attempt, db))
     );
@@ -233,7 +243,11 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       devinSessionUrl: currentAttempt.devinSessionUrl,
       prUrl: currentAttempt.prUrl,
       discoveredAt: task.createdAt,
-      lastUpdatedAt: Math.max(task.updatedAt, ...attemptRows.map((attempt) => attempt.updatedAt)),
+      lastUpdatedAt: Math.max(
+        task.updatedAt,
+        ...attemptRows.map((attempt) => attempt.updatedAt),
+        ...verificationTimestamps
+      ),
       terminalAt,
       verifiedAt,
     };
