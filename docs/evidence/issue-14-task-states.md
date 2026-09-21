@@ -125,6 +125,17 @@ lifecycle:
 
 Command: `pnpm vitest run tests/normalized-task-state.test.ts`
 
+### Verification level
+
+This is **automated test verification only**. The table-driven cases run the
+pure `deriveTaskState` against in-memory fixtures; the DB-backed cases run
+`runMigrations` and the real `task-state.ts` functions against a local
+SQLite file. No live Devin session, GitHub API call, or tracker poll was
+exercised for this change — the tracker log line and `verification:show`
+output are type-checked and covered indirectly by the existing mocked
+tracker suite (`tests/session-tracker.test.ts`), not observed against a
+real remediation run.
+
 ## Acceptance criteria mapping
 
 | Criterion (Issue #14)                                              | Where satisfied                                                                                                                      |
