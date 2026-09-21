@@ -31,7 +31,9 @@ TypeScript application and produces a runtime image that also bundles `git`,
 (`pkg-config`, `default-libmysqlclient-dev`, `libldap2-dev`, `libsasl2-dev`,
 `libffi-dev`, `libssl-dev`, `gcc`, `g++`, `make`), so independent
 verification (`src/verification/`, Issue #13) runs inside the container
-unchanged. The container runs as the non-root user `app` (uid 1001) and no
+unchanged — the Superset repo-setup adapter and an approved `pytest`
+command were exercised end-to-end in a recorded in-container run
+([evidence](docs/evidence/issue-17-docker.md)). The container runs as the non-root user `app` (uid 1001) and no
 secrets are baked into the image — credentials are passed only via `.env` /
 environment variables at run time.
 

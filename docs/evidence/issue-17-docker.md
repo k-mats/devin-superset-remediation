@@ -15,7 +15,9 @@ Evidence bullets from the issue:
 Show that a clean checkout of the repository runs the full orchestration
 service with a single `docker compose up --build`, that persisted SQLite state
 survives container restart and recreation, that shutdown is graceful
-(SIGTERM → exit 0), and that no secrets are baked into the image.
+(SIGTERM → exit 0), that no secrets are baked into the image, and that the
+real independent-verification path (Issue #13) — clone, `uv` venv setup, and
+an approved `pytest` command — runs end-to-end inside the production image.
 
 ## Setup
 
@@ -120,6 +122,10 @@ docker compose exec app sh -c 'git --version; uv --version; uv python find 3.12;
 the superset repo-setup adapter resolves via `uv python find` / `uv venv
 --python 3.12`.)
 
+The toolchain above is not only present but was exercised end-to-end by a
+real remediation verification — see "End-to-end independent verification
+inside the container" below.
+
 ### No secrets in the image
 
 ```bash
@@ -183,19 +189,97 @@ docker compose exec app node dist/cli/verification-approve.js
 No `tsx`, dev dependencies, or `.env` are required inside the container
 (`dotenv` reports `injected env (0) from .env`).
 
+### End-to-end independent verification inside the container (Issue #13 remediation)
+
+Recorded on a fresh clone of image commit
+`a04bed7afd79f8c1a49a79d2fcec1daabbabad13` (`docker compose up --build -d`,
+empty `orchestrator-data` volume). Subject: `k-mats/superset` issue #13
+(`fix(mcp): query_dataset returns UnexpectedError for reversed time_range`),
+PR #14, head SHA `f22d3d3f55b19803542416f4150a62cbc7607fc0`, adopted Devin
+session `5957ce490e56465b930e0349ace6db68` (no new Devin session created).
+The verification workspace lives on the `orchestrator-data` volume under
+`/app/data/verification/k-mats__superset`.
+
+Two driver scripts were used: `evidence-seed.mjs` (mirrors
+`scripts/adopt-session-demo.ts` + intake/tracking writes over compiled
+`dist/` modules: seeds task+attempt, marks dispatching/session_created,
+records PR #14, marks `verifying`) and `evidence-verify.mjs` (mirrors
+`scripts/verification-demo.ts`: refreshes PR state then calls
+`verifyRemediationOnce`, the same function the service poll uses). Both were
+copied into the volume with `docker compose cp` and run unmodified. The
+GitHub token was fetched with `gh auth token` on the host and passed
+per-command via `docker compose exec -e GITHUB_TOKEN=...` — never written to
+`.env`, the image, or the volume scripts.
+
+```bash
+# Seed → attempt 1 in state verifying
+docker compose exec -e GITHUB_TOKEN="$T" app node /app/data/evidence-seed.mjs
+# {"task_id":1,"attempt_id":1,"state":"verifying",
+#  "pr_url":"https://github.com/k-mats/superset/pull/14",
+#  "pr_head_sha":"f22d3d3f55b19803542416f4150a62cbc7607fc0"}
+
+# Operator flow via the compiled CLIs
+docker compose exec app node dist/cli/verification-propose.js --attempt 1 \
+  --command "pytest tests/unit_tests/mcp_service/dataset/tool/test_query_dataset.py::test_query_dataset_reversed_time_range -q"
+# Candidate sha256: 590eadd10bdffac99af35dcba67a28c4330b33bca2fda534b812b58711dc13df
+# Candidate source: operator
+
+docker compose exec app node dist/cli/verification-approve.js --attempt 1 \
+  --spec-hash 590eadd10bdffac99af35dcba67a28c4330b33bca2fda534b812b58711dc13df
+# New approved sha256:      590eadd10bdffac99af35dcba67a28c4330b33bca2fda534b812b58711dc13df
+# Approved by:              operator
+
+# The real verification pass: clone → uv venv (Python 3.12) → uv pip install
+# -r requirements/development.txt → approved pytest command
+docker compose exec -e GITHUB_TOKEN="$T" app node /app/data/evidence-verify.mjs --attempt 1
+# Decision: verification_passed (64182 ms wall)
+# adapter=superset setup_ms=40467
+# exit_code=0
+# .                                                                        [100%]
+# 1 passed in 1.27s
+```
+
+Verifications table after the run:
+
+| id  | kind            | status       | reason      | exit_code | head_sha   | spec_sha256 |
+| --- | --------------- | ------------ | ----------- | --------- | ---------- | ----------- |
+| 1   | `github_checks` | `unverified` | `no_checks` | —         | `f22d3d3f` | —           |
+| 2   | `command`       | `passed`     | —           | 0         | `f22d3d3f` | `590eadd1`  |
+
+Post-run state:
+
+```bash
+docker compose exec app node dist/cli/verification-show.js --attempt 1
+# Normalized task state: 'VERIFIED' / 'command_verification_passed'
+# Approval status: approved
+
+curl -s localhost:3000/api/report
+# summary.byState.VERIFIED = 1; task k-mats/superset#13 state "VERIFIED",
+# currentAttempt state "completed", outcome "succeeded",
+# outcomeReason "independent_verification_passed: f22d3d3f55b19803542416f4150a62cbc7607fc0"
+
+docker compose exec app sh -c '/app/data/verification/*/.venv/bin/python --version; uv python find 3.12'
+# Python 3.12.12
+# /opt/uv/python/cpython-3.12.12-linux-x86_64-gnu/bin/python3.12
+```
+
+The `/dashboard` and `/api/report` surfaces show the completed attempt
+(`VERIFIED` / `succeeded`).
+
 ## Result
 
-| Check                                            | Outcome                                                                                                    |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| Clean-checkout `docker compose up --build`       | passed — container `healthy`, no credentials required                                                      |
-| `/health`, `/ready`, `/api/report`, `/dashboard` | all HTTP 200                                                                                               |
-| Seed task persisted                              | `totalTasks: 1`, `QUEUED` "Docker persistence check"                                                       |
-| `docker compose restart`                         | task still present                                                                                         |
-| `docker compose down && up -d`                   | task still present (named volume `orchestrator-data`)                                                      |
-| Graceful shutdown                                | SIGTERM log `Shutting down`, exit code 0                                                                   |
-| Verification toolchain in image                  | git 2.39.5, uv 0.9.26, uv-managed Python 3.12.12, native deps                                              |
-| Operator CLIs run in-container (`dist/cli/`)     | propose/approve/show exit 0; wrong hash and no-args exit 1                                                 |
-| Secrets                                          | none in image layers/config; env values empty by default; `.env` untracked and excluded from build context |
-| Build context                                    | 3.54 kB transferred (`.dockerignore`)                                                                      |
+| Check                                            | Outcome                                                                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| Clean-checkout `docker compose up --build`       | passed — container `healthy`, no credentials required                                                             |
+| `/health`, `/ready`, `/api/report`, `/dashboard` | all HTTP 200                                                                                                      |
+| Seed task persisted                              | `totalTasks: 1`, `QUEUED` "Docker persistence check"                                                              |
+| `docker compose restart`                         | task still present                                                                                                |
+| `docker compose down && up -d`                   | task still present (named volume `orchestrator-data`)                                                             |
+| Graceful shutdown                                | SIGTERM log `Shutting down`, exit code 0                                                                          |
+| Verification toolchain in image                  | git 2.39.5, uv 0.9.26, uv-managed Python 3.12.12, native deps                                                     |
+| Operator CLIs run in-container (`dist/cli/`)     | propose/approve/show exit 0; wrong hash and no-args exit 1                                                        |
+| In-container end-to-end verification             | passed — clone + uv setup (40.5s) + approved pytest, exit 0, `1 passed in 1.27s`; attempt `completed`/`succeeded` |
+| Secrets                                          | none in image layers/config; env values empty by default; `.env` untracked and excluded from build context        |
+| Build context                                    | 3.54 kB transferred (`.dockerignore`)                                                                             |
 
 Cleanup: `docker compose down -v` removes the volume and all seeded state.
