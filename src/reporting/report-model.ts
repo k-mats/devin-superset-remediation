@@ -175,10 +175,13 @@ export function attemptTerminalAt(
   projection: TaskStateProjection,
   db: DbExecutor
 ): number | null {
-  if (attempt.completedAt !== null && TERMINAL_BUCKETS.includes(bucketForState(projection.state))) {
+  if (attempt.state === 'completed' && attempt.completedAt !== null) {
     return attempt.completedAt;
   }
-  if (projection.state === 'VERIFIED' || projection.state === 'VERIFICATION_FAILED') {
+  if (
+    attempt.state !== 'completed' &&
+    (projection.state === 'VERIFIED' || projection.state === 'VERIFICATION_FAILED')
+  ) {
     const latestCommand = commandVerification(attempt, db);
     return latestCommand ? (latestCommand.finishedAt ?? latestCommand.createdAt) : null;
   }
@@ -186,6 +189,10 @@ export function attemptTerminalAt(
 }
 
 function attemptVerifiedAt(attempt: Attempt, projection: TaskStateProjection, db: DbExecutor) {
+  if (attempt.state === 'completed' && attempt.outcome === 'succeeded') {
+    return attempt.completedAt;
+  }
+  if (attempt.state === 'completed') return null;
   if (projection.state !== 'VERIFIED') return null;
   const latestCommand = commandVerification(attempt, db);
   return latestCommand?.status === 'passed'

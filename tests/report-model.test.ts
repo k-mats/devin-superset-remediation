@@ -323,6 +323,34 @@ describe('report model', () => {
     expect(report.cycleTime.sampleSize).toBe(2);
   });
 
+  it('retains completed success events after a later PR head refresh', () => {
+    const task = makeTask(16);
+    const attempt = attemptFor(task.id);
+    verify(attempt.id, 'session-head-refresh', 'head-original');
+    const completedAt = 2_000_000;
+    db()
+      .update(tasks)
+      .set({ createdAt: completedAt - 1_000 })
+      .where(eq(tasks.id, task.id))
+      .run();
+    db()
+      .update(attempts)
+      .set({
+        completedAt,
+        updatedAt: completedAt,
+        prHeadSha: 'head-refresh',
+      })
+      .where(eq(attempts.id, attempt.id))
+      .run();
+
+    const report = buildReport({ now: completedAt + 1_000 });
+    expect(report.summary.byState.PR_OPEN).toBe(1);
+    expect(report.summary.byBucket.active).toBe(1);
+    expect(report.throughput.tasksReachedTerminal.last24h).toBe(1);
+    expect(report.throughput.tasksVerified.last24h).toBe(1);
+    expect(report.cycleTime.sampleSize).toBe(1);
+  });
+
   it('counts discovered tasks in the requested throughput windows', () => {
     const task = makeTask(7);
     const now = Date.now();
