@@ -274,6 +274,38 @@ describe('deriveTaskState', () => {
       reason: 'pr_closed_without_merge',
     },
     {
+      name: 'closed PR while verifying outranks a decisive passed command',
+      attempt: verifyingAttempt({ ...approvedSpec('sha-x'), prState: 'closed' }),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'passed',
+          specSha256: 'sha-x',
+        }),
+      },
+      state: 'NEEDS_HUMAN',
+      reason: 'pr_closed_without_merge',
+    },
+    {
+      name: 'closed PR after success outranks a decisive passed command',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        state: 'completed',
+        outcome: 'succeeded',
+        completedAt: 1,
+        prState: 'closed',
+      }),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'passed',
+          specSha256: 'sha-x',
+        }),
+      },
+      state: 'NEEDS_HUMAN',
+      reason: 'pr_closed_without_merge',
+    },
+    {
       name: 'completed succeeded with a decisive passed row for the current head is VERIFIED',
       attempt: verifyingAttempt({
         ...approvedSpec('sha-x'),

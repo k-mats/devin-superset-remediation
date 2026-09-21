@@ -133,11 +133,11 @@ export function deriveTaskState(
   const decisive = (row: Verification): boolean =>
     approved && row.specSha256 !== null && row.specSha256 === attempt.verificationApprovedSha256;
 
-  if (latestCommand?.status === 'passed' && decisive(latestCommand)) {
-    return done('VERIFIED', 'command_verification_passed');
-  }
   if (attempt.prState === 'closed') {
     return done('NEEDS_HUMAN', 'pr_closed_without_merge');
+  }
+  if (latestCommand?.status === 'passed' && decisive(latestCommand)) {
+    return done('VERIFIED', 'command_verification_passed');
   }
   if (attempt.prState === 'merged') {
     return done('NEEDS_HUMAN', 'pr_merged_before_verification');

@@ -55,11 +55,13 @@ the end of each tracking pass and printed by `pnpm verification:show`.
    `verification_approved_sha256` **and** approval status is still
    `approved` — a run of a spec superseded by a new pending candidate is
    never decisive:
-   1. Latest `command` row is `passed` and decisive → `VERIFIED`
-      (`command_verification_passed`), regardless of `pr_state`.
-   2. `pr_state = closed` → `NEEDS_HUMAN` (`pr_closed_without_merge`).
+   1. `pr_state = closed` → `NEEDS_HUMAN` (`pr_closed_without_merge`),
+      including when a decisive passed command row exists.
+   2. Latest `command` row is `passed` and decisive → `VERIFIED`
+      (`command_verification_passed`), unless the PR was closed without merge.
    3. `pr_state = merged` → `NEEDS_HUMAN` (`pr_merged_before_verification`)
-      — the merge itself is not verification evidence.
+      — the merge itself is not verification evidence; a decisive passed row
+      still wins for merged PRs.
    4. Latest `command` row is `failed` and decisive → `VERIFICATION_FAILED`
       (`command_verification_failed`).
    5. Latest `github_checks` row is `unverified`/`checks_pending` →
