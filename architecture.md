@@ -120,6 +120,9 @@ timestamp). A candidate can come from a `## Verification` fenced block in the
 issue body, from the agent's reported `tests_run` commands (candidate only —
 agent-reported commands are never executed without an operator approval via
 `pnpm verification:approve`), or from `pnpm verification:propose` (operator).
+The operator verification browser page is an additional interface over these
+same domain functions; it does not introduce a second verification state
+machine or execution path.
 Every source — including a `## Verification` section already present at
 dispatch time — produces a _candidate_ only; the issue-defined spec is
 surfaced as the preferred candidate but is never approved automatically.

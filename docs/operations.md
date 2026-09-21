@@ -91,6 +91,24 @@ docker compose exec app node dist/cli/verification-approve.js --attempt <id> --s
 docker compose exec app node dist/cli/verification-show.js --attempt <id>
 ```
 
+### Operator verification UI
+
+The same review, proposal, approval, and explicit rerun workflow is available
+at `/operator/attempts/<id>/verification`. The page is intentionally separate
+from the reporting dashboard: verification scripts are visible only on this
+operator surface, while raw command output remains excluded from reports.
+Reruns are synchronous and warn before running checkout, repository setup, and
+the approved shell script; they may take many minutes. A rerun returns `503
+verification_disabled` when `VERIFICATION_ENABLED=false`, or `503
+github_unavailable` when `GITHUB_TOKEN` is not configured. Review, propose, and
+approve remain available in both cases.
+
+The synchronous rerun has the pre-existing tracker-overlap limitation: a
+tracking poll can run verification on the same attempt while the browser rerun
+is checking out or executing. Completion is transaction-guarded, but two
+checkouts can collide in the shared workspace. There is no in-process rerun
+lock or job.
+
 ### Trust boundary of in-container verification
 
 Independent verification runs checked-out repository / PR code **inside the

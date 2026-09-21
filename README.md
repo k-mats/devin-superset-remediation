@@ -151,7 +151,8 @@ tracking a PR, or running a verification. Those need Path B.
    the attempt moves `running → verifying`.
 6. **Verification approval** (operator, manual by design): inspect the
    candidate spec and approve its sha256 — see
-   [How to inspect results](#how-to-inspect-results). The next tracking pass
+   [How to inspect results](#how-to-inspect-results), or use the browser UI at
+   `/operator/attempts/<id>/verification`. The next tracking pass
    clones the PR head into the verification workspace, runs the repository
    setup adapter, executes only the approved command, and records the result.
 7. **Confirm the result** at `/dashboard` / `/api/report`: the task reaches
@@ -206,18 +207,19 @@ workflow. Details and options are in
 
 ## How to inspect results
 
-| What                                     | Where                                                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Everything at a glance                   | <http://localhost:3000/dashboard> — summary cards per normalized state, throughput, cycle time, per-task rows, and the remediation evidence ledger                       |
-| Machine-readable report                  | `GET /api/report` — same data as JSON, plus runtime context and a per-task remediation evidence ledger                                                                   |
-| Liveness / readiness                     | `GET /health`, `GET /ready` (readiness includes database connectivity)                                                                                                   |
-| Task state, session, PR for one attempt  | `docker compose exec app node dist/cli/verification-show.js --attempt <id>` — prints normalized state, raw provider facts, candidate/approved spec, verification history |
-| Devin session                            | `devin_session_id` / session URL in `/api/report` and `verification-show`; open it in the Devin app                                                                      |
-| Pull request                             | `pr_url`, `pr_state`, tracked head SHA in `/api/report`, the dashboard row, and `verification-show`                                                                      |
-| Verification spec and results            | `verification-show` (candidate vs approved sha256, status, each `command` / `github_checks` verification row for the current head)                                       |
-| Propose / approve a verification command | `verification-propose.js --attempt <id> --command "<cmd>"`, then `verification-approve.js --attempt <id> --spec-hash <sha256>`                                           |
-| Raw database                             | SQLite file on the `orchestrator-data` volume (`/app/data/orchestrator.db`); tables `tasks`, `attempts`, `verifications`                                                 |
-| Logs                                     | `docker compose logs -f app` — structured JSON, one projection line per tracking pass                                                                                    |
+| What                                                 | Where                                                                                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Everything at a glance                               | <http://localhost:3000/dashboard> — summary cards per normalized state, throughput, cycle time, per-task rows, and the remediation evidence ledger                       |
+| Machine-readable report                              | `GET /api/report` — same data as JSON, plus runtime context and a per-task remediation evidence ledger                                                                   |
+| Liveness / readiness                                 | `GET /health`, `GET /ready` (readiness includes database connectivity)                                                                                                   |
+| Task state, session, PR for one attempt              | `docker compose exec app node dist/cli/verification-show.js --attempt <id>` — prints normalized state, raw provider facts, candidate/approved spec, verification history |
+| Devin session                                        | `devin_session_id` / session URL in `/api/report` and `verification-show`; open it in the Devin app                                                                      |
+| Pull request                                         | `pr_url`, `pr_state`, tracked head SHA in `/api/report`, the dashboard row, and `verification-show`                                                                      |
+| Verification spec and results                        | `verification-show` (candidate vs approved sha256, status, each `command` / `github_checks` verification row for the current head)                                       |
+| Propose / approve a verification command             | `verification-propose.js --attempt <id> --command "<cmd>"`, then `verification-approve.js --attempt <id> --spec-hash <sha256>`                                           |
+| Review/propose/approve/rerun verification in browser | `/operator/attempts/<id>/verification`                                                                                                                                   |
+| Raw database                                         | SQLite file on the `orchestrator-data` volume (`/app/data/orchestrator.db`); tables `tasks`, `attempts`, `verifications`                                                 |
+| Logs                                                 | `docker compose logs -f app` — structured JSON, one projection line per tracking pass                                                                                    |
 
 Attempt ids are the numeric `attempt.id` shown in `/api/report`. The
 `docker compose exec …` commands must be run from the repository directory
@@ -279,6 +281,10 @@ credentials; the real-run stages were recorded separately as linked above.
 stop` gives 15 s; a running checkout/setup/command (timeouts up to
   5 / 30 / 15 min) may be killed. Recorded state and workspaces persist on
   the volume; a mid-run verification is not reconciled across restarts.
+- **Browser reruns can overlap tracker verification.** The explicit browser
+  rerun is synchronous and may race a tracking poll on the same attempt and
+  workspace; completion is transaction-guarded, but checkout/setup work can
+  collide.
 - **Polling by default.** Without the optional webhook, intake latency is
   bounded by `GITHUB_POLL_INTERVAL_MS`; dispatch and tracking latency by the
   other interval settings (60 s each by default). The webhook only
