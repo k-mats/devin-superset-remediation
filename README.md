@@ -111,7 +111,7 @@ pnpm install
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
-- `pnpm demo:restart` - Demonstrate persistent state across process restart in `./data/demo-state-restart.db` (override with `DEMO_DATABASE_PATH`)
+- `pnpm demo:restart` - Demonstrate persistent state across process restart in `./data/demo-state-restart.db` (override with `DEMO_DATABASE_PATH`); the demo database is reset on each run
 
 ### Environment Variables
 
