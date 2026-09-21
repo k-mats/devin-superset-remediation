@@ -358,7 +358,10 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
   for (const { attempt, task } of trackedRows) {
     try {
       const decision = await refreshPullRequest(attempt, task, opts, db);
-      if (decision) countDecision(result, decision);
+      if (decision) {
+        countDecision(result, decision);
+        logNormalizedState(attempt.id, decision, opts, db);
+      }
     } catch (error: unknown) {
       opts.logger.error(
         { err: error, ...logContext(attempt) },
