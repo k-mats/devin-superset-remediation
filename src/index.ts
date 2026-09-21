@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
+import { reportRoutes } from './routes/report.js';
 import { closeDb, runMigrations } from './db/client.js';
 import { createGitHubClientFromConfig, type GitHubClient } from './github/client.js';
 import { createDevinClientFromConfig } from './devin/client.js';
@@ -22,6 +23,7 @@ export async function buildServer() {
   });
 
   await server.register(healthRoutes);
+  await server.register(reportRoutes);
 
   let githubClient: GitHubClient | undefined;
   const getGitHubClient = () => {

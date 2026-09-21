@@ -1,5 +1,6 @@
-import 'dotenv/config';
+import './demo-db-env.js';
 import { execFileSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeDb, runMigrations } from '../src/db/client.js';
@@ -122,6 +123,10 @@ function main() {
     return;
   }
 
+  const databasePath = resolve(config.databasePath);
+  rmSync(databasePath, { force: true });
+  rmSync(`${databasePath}-wal`, { force: true });
+  rmSync(`${databasePath}-shm`, { force: true });
   execFileSync('pnpm', ['exec', 'tsx', thisFile, 'write'], { stdio: 'inherit' });
   execFileSync('pnpm', ['exec', 'tsx', thisFile, 'read'], { stdio: 'inherit' });
 }

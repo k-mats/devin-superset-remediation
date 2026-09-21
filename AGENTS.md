@@ -26,6 +26,9 @@ devin-superset-remediation/
 │   ├── tracking/
 │   │   ├── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
 │   │   └── normalized-task-state.ts # Derived normalized task-state projection (Issue #14)
+│   ├── reporting/
+│   │   ├── report-model.ts    # Task and attempt observability report (Issue #15)
+│   │   └── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15)
 │   ├── verification/         # Independent remediation verification (Issue #13)
 │   │   ├── spec.ts           # Issue `## Verification` section parser and spec hashing
 │   │   ├── approval.ts       # Candidate vs approved spec status derivation
@@ -35,9 +38,11 @@ devin-superset-remediation/
 │   │   ├── github-checks.ts  # Check-run/combined-status evaluation
 │   │   └── verify-remediation.ts # Verification orchestration per poll
 │   └── routes/               # Fastify routes
-│       └── health.ts         # Health check endpoint
+│       ├── health.ts         # Health check endpoint
+│       └── report.ts         # JSON report and HTML dashboard (Issue #15)
 ├── scripts/
 │   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
+│   ├── demo-db-env.ts        # Isolate the state-restart demo database
 │   ├── state-restart-demo.ts # Persistent state restart demo (Issue #6)
 │   ├── intake-demo.ts        # Single GitHub intake pass demo (Issue #7)
 │   ├── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)
@@ -57,6 +62,8 @@ devin-superset-remediation/
 │   ├── task-state.test.ts    # Persistent task state tests
 │   ├── session-tracker.test.ts # Session and PR tracking tests
 │   └── normalized-task-state.test.ts # Normalized task-state projection tests
+│   ├── report-model.test.ts # Reporting model tests
+│   └── report-routes.test.ts # Reporting route tests
 ├── drizzle/                  # Drizzle migrations
 ├── package.json              # pnpm configuration
 ├── tsconfig.json             # TypeScript configuration

@@ -111,7 +111,7 @@ pnpm install
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
-- `DATABASE_PATH=./data/demo.db pnpm demo:restart` - Demonstrate persistent state across process restart; `DATABASE_PATH` is optional and sets the SQLite file path (default `./data/orchestrator.db`), so any path works and `./data/demo.db` keeps demo data separate from the real database
+- `pnpm demo:restart` - Demonstrate persistent state across process restart in `./data/demo-state-restart.db` (override with `DEMO_DATABASE_PATH`); the demo database is reset on each run
 
 ### Environment Variables
 
@@ -123,6 +123,33 @@ PORT=3000
 DATABASE_PATH=./database.db
 LOG_LEVEL=info
 ```
+
+## Observability / reporting (Issue #15)
+
+The service exposes `GET /api/report` for a JSON report and `GET /dashboard`
+for a lightweight server-rendered HTML dashboard. Both report all persisted
+work in the configured `DATABASE_PATH` and include the runtime context
+(database path, environment, and configured intake repository). The report
+summary and dashboard cards count **tasks**. Throughput measures count
+discovered, terminal, and verified **tasks**, while the attempts-created
+measure counts **attempts**. The summary describes the current task state;
+throughput and cycle time describe historical events and never decrease
+retroactively when retries change the current attempt. Success is defined
+strictly as the normalized `VERIFIED` state; a PR URL or open PR is not
+success.
+Terminal time comes only from persisted immutable timestamps (`completed_at` on
+the attempt or the decisive verification row). Derived terminal states without
+one are counted in the summary cards but excluded from terminal throughput and
+cycle time, and surfaced via `terminalWithoutTimestamp`. Cycle time uses all
+historical terminal attempts.
+
+Demo and test data use separate databases: `pnpm demo:restart` writes to
+`./data/demo-state-restart.db` by default and can be overridden with
+`DEMO_DATABASE_PATH`; tests use `./test-database.db`.
+
+These endpoints are UNAUTHENTICATED and are intended only for local or trusted
+internal environments. Responses never contain secrets, verification scripts,
+raw structured output, or agent diagnoses.
 
 ### GitHub intake (Issue #7)
 

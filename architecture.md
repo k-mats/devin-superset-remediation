@@ -65,7 +65,8 @@ with a NULL session ID is the reconciliation signal after a crash.
 tag. A partial unique index on `attempts.task_id` restricts each task to at
 most one active (`pending`, `dispatching`, `session_created`, `running`, or
 `verifying`) attempt, and `outcome_reason` records why an attempt was
-completed.
+completed. Demo and test workflows use separate database paths from the
+configured application database.
 
 Session state (`devin_session_status`, status detail, usage, and timestamps),
 the agent's structured outcome (`agent_outcome` and agent-reported PR URL), the
@@ -93,6 +94,22 @@ verification rows) are carried alongside the normalized value in
 `projection.raw` so the projection never replaces them. The session tracker
 emits the projection as a structured log line at the end of each tracking
 pass, and `pnpm verification:show` prints it next to the raw facts.
+
+### Reporting
+
+Issue #15 derives the JSON report and the HTML dashboard from the normalized
+task-state projection, with the current attempt selected as the active attempt
+when one exists. Reports are scoped to the configured database and include
+database, environment, and configured intake repository context; they distinguish task counts
+from attempt throughput and treat only `VERIFIED` as successful. Summary
+fields describe the current task state, while throughput and cycle time
+describe historical events and never decrease retroactively when retries
+change the current attempt.
+Terminal time comes only from persisted immutable timestamps (`completed_at` on
+the attempt or the decisive verification row). Derived terminal states without
+one are counted in the summary cards but excluded from terminal throughput and
+cycle time, and surfaced via `terminalWithoutTimestamp`.
+Cycle time uses all historical terminal attempts.
 
 ### Verification
 
