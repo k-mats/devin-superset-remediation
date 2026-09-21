@@ -42,6 +42,7 @@ devin-superset-remediation/
 │       └── report.ts         # JSON report and HTML dashboard (Issue #15)
 ├── scripts/
 │   ├── devin-smoke.ts        # Devin API smoke test (Issue #5)
+│   ├── demo-db-env.ts        # Isolate the state-restart demo database
 │   ├── state-restart-demo.ts # Persistent state restart demo (Issue #6)
 │   ├── intake-demo.ts        # Single GitHub intake pass demo (Issue #7)
 │   ├── dispatch-demo.ts      # Single Devin dispatch pass demo (Issues #8, #9)

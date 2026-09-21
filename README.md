@@ -111,7 +111,7 @@ pnpm install
 
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
-- `DATABASE_PATH=./data/demo.db pnpm demo:restart` - Demonstrate persistent state across process restart; `DATABASE_PATH` is optional and sets the SQLite file path (default `./data/orchestrator.db`), so any path works and `./data/demo.db` keeps demo data separate from the real database
+- `pnpm demo:restart` - Demonstrate persistent state across process restart in `./data/demo-state-restart.db` (override with `DEMO_DATABASE_PATH`)
 
 ### Environment Variables
 
@@ -127,13 +127,16 @@ LOG_LEVEL=info
 ## Observability / reporting (Issue #15)
 
 The service exposes `GET /api/report` for a JSON report and `GET /dashboard`
-for a lightweight server-rendered HTML dashboard. Both accept an optional
-comma-separated `run_kind` query parameter (`real`, `demo`, `mock`, or
-`unknown`); the default summary filter is `real`. Pre-migration attempts are
-assigned `unknown`. The report summary and dashboard cards count **tasks**,
-while the attempts-created throughput measure counts **attempts**. Success is
-defined strictly as the normalized `VERIFIED` state; a PR URL or open PR is
-not success.
+for a lightweight server-rendered HTML dashboard. Both report all persisted
+work in the configured `DATABASE_PATH` and include the runtime context
+(database path, environment, and configured repository). The report summary
+and dashboard cards count **tasks**, while the attempts-created throughput
+measure counts **attempts**. Success is defined strictly as the normalized
+`VERIFIED` state; a PR URL or open PR is not success.
+
+Demo and test data use separate databases: `pnpm demo:restart` writes to
+`./data/demo-state-restart.db` by default and can be overridden with
+`DEMO_DATABASE_PATH`; tests use `./test-database.db`.
 
 These endpoints are UNAUTHENTICATED and are intended only for local or trusted
 internal environments. Responses never contain secrets, verification scripts,

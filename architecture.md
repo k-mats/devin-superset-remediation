@@ -65,9 +65,8 @@ with a NULL session ID is the reconciliation signal after a crash.
 tag. A partial unique index on `attempts.task_id` restricts each task to at
 most one active (`pending`, `dispatching`, `session_created`, `running`, or
 `verifying`) attempt, and `outcome_reason` records why an attempt was
-completed. Each attempt also has a `run_kind` (`real`, `demo`, `mock`, or
-`unknown`) so reporting can separate production work from demonstrations and
-tests; rows that predate the column are `unknown`.
+completed. Demo and test workflows use separate database paths from the
+configured application database.
 
 Session state (`devin_session_status`, status detail, usage, and timestamps),
 the agent's structured outcome (`agent_outcome` and agent-reported PR URL), the
@@ -100,9 +99,9 @@ pass, and `pnpm verification:show` prints it next to the raw facts.
 
 Issue #15 derives the JSON report and the HTML dashboard from the normalized
 task-state projection, with the current attempt selected as the active attempt
-when one exists. Reports default to real runs and can include other
-`run_kind` values explicitly; they distinguish task counts from attempt
-throughput and treat only `VERIFIED` as successful.
+when one exists. Reports are scoped to the configured database and include
+database, environment, and repository context; they distinguish task counts
+from attempt throughput and treat only `VERIFIED` as successful.
 
 ### Verification
 
