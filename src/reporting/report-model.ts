@@ -74,6 +74,8 @@ export interface ReportAttemptRow {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  terminalAt: number | null;
+  verifiedAt: number | null;
   projection: TaskStateProjection;
 }
 
@@ -108,10 +110,18 @@ export interface Report {
   context: {
     databasePath: string;
     nodeEnv: string;
-    repository: string | null;
+    configuredRepository: string | null;
     generatedAt: string;
   };
-  unit: { summary: 'tasks'; throughput: 'tasks'; attempts: 'attempts' };
+  unit: {
+    summary: 'tasks';
+    throughput: {
+      tasksDiscovered: 'tasks';
+      tasksReachedTerminal: 'tasks';
+      tasksVerified: 'tasks';
+      attemptsCreated: 'attempts';
+    };
+  };
   summary: {
     totalTasks: number;
     byBucket: Record<TaskBucket, number>;
@@ -124,10 +134,20 @@ export interface Report {
     tasksVerified: WindowCounts;
     attemptsCreated: WindowCounts;
   };
-  cycleTime: { medianMsIntakeToTerminal: number | null; sampleSize: number };
+  cycleTime: {
+    medianMsIntakeToTerminal: number | null;
+    sampleSize: number;
+    basis: 'all_terminal_attempts';
+  };
   tasks: ReportTaskRow[];
   tasksWithoutAttempts: number;
 }
+
+/**
+ * Summary fields describe the current task state; throughput and cycle time
+ * describe historical events and never decrease retroactively when retries
+ * change the current attempt.
+ */
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -145,7 +165,40 @@ function emptyStateCounts(): Record<NormalizedTaskState, number> {
   >;
 }
 
-function toAttemptRow(attempt: Attempt, projection: TaskStateProjection): ReportAttemptRow {
+function commandVerification(attempt: Attempt, db: DbExecutor) {
+  return attempt.prHeadSha === null
+    ? undefined
+    : findLatestVerification(attempt.id, attempt.prHeadSha, 'command', db);
+}
+
+export function attemptTerminalAt(
+  attempt: Attempt,
+  projection: TaskStateProjection,
+  db: DbExecutor
+): number | null {
+  if (attempt.completedAt !== null && TERMINAL_BUCKETS.includes(bucketForState(projection.state))) {
+    return attempt.completedAt;
+  }
+  if (projection.state === 'VERIFIED' || projection.state === 'VERIFICATION_FAILED') {
+    const latestCommand = commandVerification(attempt, db);
+    return latestCommand ? (latestCommand.finishedAt ?? latestCommand.createdAt) : null;
+  }
+  return null;
+}
+
+function attemptVerifiedAt(attempt: Attempt, projection: TaskStateProjection, db: DbExecutor) {
+  if (projection.state !== 'VERIFIED') return null;
+  const latestCommand = commandVerification(attempt, db);
+  return latestCommand?.status === 'passed'
+    ? (latestCommand.finishedAt ?? latestCommand.createdAt)
+    : null;
+}
+
+function toAttemptRow(
+  attempt: Attempt,
+  projection: TaskStateProjection,
+  db: DbExecutor
+): ReportAttemptRow {
   return {
     id: attempt.id,
     attemptNumber: attempt.attemptNumber,
@@ -163,6 +216,8 @@ function toAttemptRow(attempt: Attempt, projection: TaskStateProjection): Report
     createdAt: attempt.createdAt,
     updatedAt: attempt.updatedAt,
     completedAt: attempt.completedAt,
+    terminalAt: attemptTerminalAt(attempt, projection, db),
+    verifiedAt: attemptVerifiedAt(attempt, projection, db),
     projection,
   };
 }
@@ -203,40 +258,24 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       continue;
     }
     const currentAttempt = latestAttempt(attemptRows);
-    const currentProjection = projectTaskState(currentAttempt, db);
     const verificationTimestamps = attemptRows.flatMap((attempt) =>
       listVerifications(attempt.id, db).map(
         (verification) => verification.finishedAt ?? verification.createdAt
       )
     );
-    const reportAttempts = attemptRows.map((attempt) =>
-      toAttemptRow(attempt, projectTaskState(attempt, db))
-    );
+    const reportAttempts = attemptRows.map((attempt) => {
+      const projection = projectTaskState(attempt, db);
+      return toAttemptRow(attempt, projection, db);
+    });
     const currentReportAttempt = reportAttempts.find((attempt) => attempt.id === currentAttempt.id);
     if (!currentReportAttempt) throw new Error('Current attempt is missing from report history');
+    const currentProjection = currentReportAttempt.projection;
     const bucket = bucketForState(currentProjection.state);
-    const latestCommand =
-      currentAttempt.prHeadSha === null
-        ? undefined
-        : findLatestVerification(currentAttempt.id, currentAttempt.prHeadSha, 'command', db);
-    const verifiedAt =
-      currentProjection.state === 'VERIFIED' && latestCommand?.status === 'passed'
-        ? (latestCommand.finishedAt ?? latestCommand.createdAt)
-        : null;
     const lastUpdatedAt = Math.max(
       task.updatedAt,
       ...attemptRows.map((attempt) => attempt.updatedAt),
       ...verificationTimestamps
     );
-    const terminalAt =
-      TERMINAL_BUCKETS.includes(bucket) && currentAttempt.completedAt !== null
-        ? currentAttempt.completedAt
-        : TERMINAL_BUCKETS.includes(bucket) &&
-            (currentProjection.state === 'VERIFICATION_FAILED' ||
-              currentProjection.state === 'VERIFIED') &&
-            latestCommand
-          ? (latestCommand.finishedAt ?? latestCommand.createdAt)
-          : null;
     const row: ReportTaskRow = {
       taskId: task.id,
       repoOwner: task.repoOwner,
@@ -254,8 +293,8 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       prUrl: currentAttempt.prUrl,
       discoveredAt: task.createdAt,
       lastUpdatedAt,
-      terminalAt,
-      verifiedAt,
+      terminalAt: currentReportAttempt.terminalAt,
+      verifiedAt: currentReportAttempt.verifiedAt,
     };
     rows.push(row);
     bucketCounts[row.bucket] += 1;
@@ -265,15 +304,26 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     }
   }
 
-  const filteredAttemptRows = rows.flatMap((row) => row.attempts);
+  const reportAttemptTimestampCounts = (
+    timestampFor: (attempt: ReportAttemptRow) => number | null
+  ): WindowCounts => ({
+    last24h: rows.filter((row) =>
+      row.attempts.some((attempt) => inWindow(timestampFor(attempt), now, dayMs))
+    ).length,
+    last7d: rows.filter((row) =>
+      row.attempts.some((attempt) => inWindow(timestampFor(attempt), now, dayMs * 7))
+    ).length,
+  });
   const countWindow = (timestamps: Array<number | null>): WindowCounts => ({
     last24h: timestamps.filter((timestamp) => inWindow(timestamp, now, dayMs)).length,
     last7d: timestamps.filter((timestamp) => inWindow(timestamp, now, dayMs * 7)).length,
   });
   const cycleTimes = rows.flatMap((row) =>
-    row.terminalAt === null ? [] : [row.terminalAt - row.discoveredAt]
+    row.attempts.flatMap((attempt) =>
+      attempt.terminalAt === null ? [] : [attempt.terminalAt - row.discoveredAt]
+    )
   );
-  const repository =
+  const configuredRepository =
     config.githubRepoOwner && config.githubRepoName
       ? `${config.githubRepoOwner}/${config.githubRepoName}`
       : null;
@@ -283,10 +333,18 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     context: {
       databasePath: resolve(config.databasePath),
       nodeEnv: config.nodeEnv,
-      repository,
+      configuredRepository,
       generatedAt,
     },
-    unit: { summary: 'tasks', throughput: 'tasks', attempts: 'attempts' },
+    unit: {
+      summary: 'tasks',
+      throughput: {
+        tasksDiscovered: 'tasks',
+        tasksReachedTerminal: 'tasks',
+        tasksVerified: 'tasks',
+        attemptsCreated: 'attempts',
+      },
+    },
     summary: {
       totalTasks: rows.length,
       byBucket: bucketCounts,
@@ -295,11 +353,17 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
     },
     throughput: {
       tasksDiscovered: countWindow(rows.map((row) => row.discoveredAt)),
-      tasksReachedTerminal: countWindow(rows.map((row) => row.terminalAt)),
-      tasksVerified: countWindow(rows.map((row) => row.verifiedAt)),
-      attemptsCreated: countWindow(filteredAttemptRows.map((attempt) => attempt.createdAt)),
+      tasksReachedTerminal: reportAttemptTimestampCounts((attempt) => attempt.terminalAt),
+      tasksVerified: reportAttemptTimestampCounts((attempt) => attempt.verifiedAt),
+      attemptsCreated: countWindow(
+        rows.flatMap((row) => row.attempts.map((attempt) => attempt.createdAt))
+      ),
     },
-    cycleTime: { medianMsIntakeToTerminal: median(cycleTimes), sampleSize: cycleTimes.length },
+    cycleTime: {
+      medianMsIntakeToTerminal: median(cycleTimes),
+      sampleSize: cycleTimes.length,
+      basis: 'all_terminal_attempts',
+    },
     tasks: rows.sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt),
     tasksWithoutAttempts,
   };
