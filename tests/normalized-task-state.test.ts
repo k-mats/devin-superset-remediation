@@ -32,7 +32,6 @@ function makeAttempt(overrides: Partial<Attempt> = {}): Attempt {
     taskId: 1,
     attemptNumber: 1,
     correlationId: 'corr-1',
-    runKind: 'mock',
     state: 'pending',
     outcome: null,
     outcomeReason: null,
@@ -594,7 +593,7 @@ describe('projectTaskState (db-backed)', () => {
   it('ignores verification rows recorded for a superseded PR head', () => {
     const db = getDb();
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 14 });
-    const attempt = createAttempt(task.id, 'mock', db);
+    const attempt = createAttempt(task.id, db);
     markDispatching(attempt.id, db);
     markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
     markRunning(attempt.id, db);
@@ -666,7 +665,7 @@ describe('projectTaskState (db-backed)', () => {
   it('rejects verification spec mutations after a completed verified attempt', () => {
     const db = getDb();
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 16 });
-    const attempt = createAttempt(task.id, 'mock', db);
+    const attempt = createAttempt(task.id, db);
     markDispatching(attempt.id, db);
     markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
     markRunning(attempt.id, db);
@@ -719,7 +718,7 @@ describe('projectTaskState (db-backed)', () => {
   it('leaves a verifying attempt untouched when onlySource does not match', () => {
     const db = getDb();
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 17 });
-    const attempt = createAttempt(task.id, 'mock', db);
+    const attempt = createAttempt(task.id, db);
     markDispatching(attempt.id, db);
     markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
     markRunning(attempt.id, db);
@@ -740,7 +739,7 @@ describe('projectTaskState (db-backed)', () => {
   it('projects VERIFIED for a completed attempt and demotes it when the head moves', () => {
     const db = getDb();
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 15 });
-    const attempt = createAttempt(task.id, 'mock', db);
+    const attempt = createAttempt(task.id, db);
     markDispatching(attempt.id, db);
     markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
     markRunning(attempt.id, db);

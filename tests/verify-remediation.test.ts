@@ -75,7 +75,7 @@ function verifyingAttempt(overrides: { issueNumber?: number } = {}) {
     repoName: 'Repo',
     issueNumber: overrides.issueNumber ?? 7,
   });
-  const attempt = createAttempt(task.id, 'mock');
+  const attempt = createAttempt(task.id);
   markDispatching(attempt.id);
   markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` });
   markRunning(attempt.id);
@@ -136,7 +136,7 @@ describe('verifyRemediationOnce', () => {
 
   it('skips attempts that are not verifying or lack a PR', async () => {
     const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 99 });
-    const attempt = createAttempt(task.id, 'mock');
+    const attempt = createAttempt(task.id);
     expect(await verifyRemediationOnce(attempt, task, options())).toBe('verification_skipped');
   });
 

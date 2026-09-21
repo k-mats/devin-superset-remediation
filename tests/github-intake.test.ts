@@ -109,7 +109,7 @@ describe('GitHub intake', () => {
     'does not create an attempt for a completed %s attempt',
     async (outcome) => {
       const task = upsertTask({ ...identity, issueNumber: 7 });
-      const attempt = createAttempt(task.id, 'mock');
+      const attempt = createAttempt(task.id);
       markDispatching(attempt.id);
       if (outcome === 'succeeded') {
         markSessionCreated(attempt.id, { devinSessionId: `session-${outcome}` });
@@ -149,7 +149,7 @@ describe('GitHub intake', () => {
 
   it('does not create an attempt for an active attempt', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
-    const running = createAttempt(task.id, 'mock');
+    const running = createAttempt(task.id);
     markDispatching(running.id);
     markSessionCreated(running.id, { devinSessionId: 'running-session' });
     markRunning(running.id);
@@ -225,7 +225,7 @@ describe('GitHub intake', () => {
 
   it('returns API and network errors without changing existing rows', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7, title: 'Original' });
-    const attempt = createAttempt(task.id, 'mock');
+    const attempt = createAttempt(task.id);
     const before = {
       tasks: getDb().select().from(tasks).all(),
       attempts: getDb().select().from(attempts).all(),
@@ -248,13 +248,12 @@ describe('GitHub intake', () => {
     expect(() => {
       sqlite.transaction((tx) => {
         const task = upsertTask({ ...identity, issueNumber: 7, title: 'Atomic' }, tx);
-        createAttempt(task.id, 'mock', tx);
+        createAttempt(task.id, tx);
         tx.insert(attempts)
           .values({
             taskId: task.id,
             attemptNumber: 1,
             correlationId: randomUUID(),
-            runKind: 'mock',
             state: 'pending',
             createdAt: Date.now(),
             updatedAt: Date.now(),

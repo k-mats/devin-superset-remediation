@@ -344,7 +344,7 @@ describe('Devin dispatcher', () => {
 
   it('does not dispatch a task whose attempt history is completed', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
-    const old = createAttempt(task.id, 'mock');
+    const old = createAttempt(task.id);
     markDispatching(old.id);
     markSessionCreated(old.id, { devinSessionId: 'old' });
     markRunning(old.id);
@@ -425,7 +425,7 @@ describe('Devin dispatcher', () => {
 
   it('truncates the session title to 120 characters', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
-    const attempt = createAttempt(task.id, 'mock');
+    const attempt = createAttempt(task.id);
     const longTitle = 'x'.repeat(200);
     const devin = fakeDevin();
     const opts = dispatchOptions({
@@ -511,7 +511,7 @@ describe('Devin dispatcher', () => {
     vi.useFakeTimers();
     try {
       const task = upsertTask({ ...identity, issueNumber: 7 });
-      createAttempt(task.id, 'mock');
+      createAttempt(task.id);
       const devin = fakeDevin();
       const github = { getIssue: vi.fn(() => Promise.resolve(issue())) };
       const poller = startDispatchPoller({
@@ -536,7 +536,7 @@ describe('Devin dispatcher', () => {
       await vi.advanceTimersByTimeAsync(0);
       // Seed a pending attempt so dispatch has work that stays in flight.
       const task = upsertTask({ ...identity, issueNumber: 7 });
-      createAttempt(task.id, 'mock');
+      createAttempt(task.id);
 
       let resolveIssue: ((value: GitHubIssue) => void) | undefined;
       const github = {
@@ -591,7 +591,6 @@ describe('prompt and tag builders', () => {
       taskId: 3,
       attemptNumber: 1,
       correlationId: 'corr-1',
-      runKind: 'mock',
       state: 'dispatching',
       outcome: null,
       outcomeReason: null,
