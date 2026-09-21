@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { buildServer } from '../src/index.js';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
@@ -25,6 +26,11 @@ describe('report routes', () => {
       title: '<script>alert(1)</script>',
     });
     createAttempt(task.id);
+    getDb()
+      .update(attempts)
+      .set({ prUrl: 'javascript:alert(1)' })
+      .where(eq(attempts.taskId, task.id))
+      .run();
   });
 
   afterAll(async () => {
@@ -54,6 +60,9 @@ describe('report routes', () => {
     expect(response.payload).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(response.payload).not.toContain('<script>alert(1)</script>');
     expect(response.payload).toContain(resolve('./test-database.db'));
-    expect(response.payload).toContain('VERIFIED');
+    expect(response.payload).toContain('QUEUED');
+    expect(response.payload).toContain('attempt_pending');
+    expect(response.payload).toContain('javascript:alert(1)');
+    expect(response.payload).not.toContain('href="javascript:');
   });
 });

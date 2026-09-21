@@ -53,7 +53,7 @@ Final snapshot excerpt:
   "context": {
     "databasePath": "/home/ubuntu/repos/devin-superset-remediation/data/evidence-issue-15.db",
     "nodeEnv": "development",
-    "repository": "k-mats/superset"
+    "configuredRepository": "k-mats/superset"
   },
   "summary": {
     "totalTasks": 1,
@@ -73,7 +73,11 @@ Final snapshot excerpt:
     "tasksVerified": { "last24h": 1, "last7d": 1 },
     "attemptsCreated": { "last24h": 1, "last7d": 1 }
   },
-  "cycleTime": { "medianMsIntakeToTerminal": 194561, "sampleSize": 1 },
+  "cycleTime": {
+    "medianMsIntakeToTerminal": 194561,
+    "sampleSize": 1,
+    "basis": "all_terminal_attempts"
+  },
   "tasks": [
     {
       "issueNumber": 13,
@@ -118,7 +122,7 @@ verified by the tracker; the task was still counted as `active`, not
 The row shows issue link + title, `VERIFIED / command_verification_passed`,
 outcome reason with the verified head SHA, attempt `1 / 1`, Devin session link,
 `PR #14 (open)`, and last-updated timestamp; the header shows the resolved
-database path, `NODE_ENV`, and repository.
+database path, `NODE_ENV`, and configured intake repository.
 
 ## Acceptance criteria mapping
 

@@ -105,6 +105,8 @@ describe('report model', () => {
     expect(report.tasks[0]?.attempts).toHaveLength(2);
     expect(report.tasks[0]?.verifiedAt).not.toBeNull();
     expect(report.tasks[0]?.terminalAt).not.toBeNull();
+    expect(report.tasks[0]?.attempts[0]?.terminalAt).not.toBeNull();
+    expect(report.tasks[0]?.attempts[1]?.verifiedAt).not.toBeNull();
   });
 
   it('does not treat a pull request without verification as successful', () => {
@@ -196,6 +198,36 @@ describe('report model', () => {
   it('reports the configured database context', () => {
     const report = buildReport({ now: Date.now() });
     expect(report.context.databasePath).toBe(resolve('./test-database.db'));
+    expect(report.context.configuredRepository).toBeNull();
+    expect(report.unit).toEqual({
+      summary: 'tasks',
+      throughput: {
+        tasksDiscovered: 'tasks',
+        tasksReachedTerminal: 'tasks',
+        tasksVerified: 'tasks',
+        attemptsCreated: 'attempts',
+      },
+    });
+  });
+
+  it('includes tasks from repositories other than the configured intake repository', () => {
+    const first = makeTask(12);
+    const second = upsertTask({
+      repoOwner: 'other-owner',
+      repoName: 'other-repo',
+      issueNumber: 13,
+      title: 'Other repository task',
+    });
+    createAttempt(second.id);
+
+    const report = buildReport({ now: Date.now() });
+    expect(report.summary.totalTasks).toBe(2);
+    expect(report.tasks.map((task) => `${task.repoOwner}/${task.repoName}`)).toEqual(
+      expect.arrayContaining([
+        `${first.repoOwner}/${first.repoName}`,
+        `${second.repoOwner}/${second.repoName}`,
+      ])
+    );
   });
 
   it('includes verification evidence in lastUpdatedAt', () => {
@@ -232,6 +264,65 @@ describe('report model', () => {
     );
   });
 
+  it('retains historical terminal throughput when a retry is active', () => {
+    const task = makeTask(14);
+    const first = attemptFor(task.id);
+    completeAttempt(first.id, 'failed');
+    const second = createAttempt(task.id);
+    const terminalAt = 1_000_000;
+    const discoveredAt = terminalAt - 10_000;
+    db().update(tasks).set({ createdAt: discoveredAt }).where(eq(tasks.id, task.id)).run();
+    db()
+      .update(attempts)
+      .set({ completedAt: terminalAt, updatedAt: terminalAt })
+      .where(eq(attempts.id, first.id))
+      .run();
+    db()
+      .update(attempts)
+      .set({ createdAt: terminalAt + 1, updatedAt: terminalAt + 1 })
+      .where(eq(attempts.id, second.id))
+      .run();
+
+    const report = buildReport({ now: terminalAt + 1_000 });
+    expect(report.summary.byBucket.active).toBe(1);
+    expect(report.summary.byState.QUEUED).toBe(1);
+    expect(report.throughput.tasksReachedTerminal.last24h).toBe(1);
+    expect(report.cycleTime.sampleSize).toBe(1);
+  });
+
+  it('counts distinct historical task events across failed and verified retries', () => {
+    const task = makeTask(15);
+    const first = attemptFor(task.id);
+    completeAttempt(first.id, 'failed');
+    const second = createAttempt(task.id);
+    verify(second.id, 'session-retry');
+    const firstTerminalAt = 1_000_000;
+    const secondTerminalAt = 2_000_000;
+    const discoveredAt = 900_000;
+    db().update(tasks).set({ createdAt: discoveredAt }).where(eq(tasks.id, task.id)).run();
+    db()
+      .update(attempts)
+      .set({ completedAt: firstTerminalAt, updatedAt: firstTerminalAt })
+      .where(eq(attempts.id, first.id))
+      .run();
+    db()
+      .update(attempts)
+      .set({ completedAt: secondTerminalAt, updatedAt: secondTerminalAt })
+      .where(eq(attempts.id, second.id))
+      .run();
+    db()
+      .update(verifications)
+      .set({ finishedAt: secondTerminalAt })
+      .where(eq(verifications.attemptId, second.id))
+      .run();
+
+    const report = buildReport({ now: secondTerminalAt + 1_000 });
+    expect(report.summary.byState.VERIFIED).toBe(1);
+    expect(report.throughput.tasksReachedTerminal.last24h).toBe(1);
+    expect(report.throughput.tasksVerified.last24h).toBe(1);
+    expect(report.cycleTime.sampleSize).toBe(2);
+  });
+
   it('counts discovered tasks in the requested throughput windows', () => {
     const task = makeTask(7);
     const now = Date.now();
@@ -263,6 +354,7 @@ describe('report model', () => {
     expect(buildReport({ now: 2_000_000 }).cycleTime).toEqual({
       medianMsIntakeToTerminal: 2_000,
       sampleSize: 2,
+      basis: 'all_terminal_attempts',
     });
     db().delete(verifications).run();
     db().delete(attempts).run();
@@ -270,6 +362,7 @@ describe('report model', () => {
     expect(buildReport({ now: 2_000_000 }).cycleTime).toEqual({
       medianMsIntakeToTerminal: null,
       sampleSize: 0,
+      basis: 'all_terminal_attempts',
     });
   });
 

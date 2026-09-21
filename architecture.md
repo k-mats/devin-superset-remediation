@@ -100,12 +100,16 @@ pass, and `pnpm verification:show` prints it next to the raw facts.
 Issue #15 derives the JSON report and the HTML dashboard from the normalized
 task-state projection, with the current attempt selected as the active attempt
 when one exists. Reports are scoped to the configured database and include
-database, environment, and repository context; they distinguish task counts
-from attempt throughput and treat only `VERIFIED` as successful.
+database, environment, and configured intake repository context; they distinguish task counts
+from attempt throughput and treat only `VERIFIED` as successful. Summary
+fields describe the current task state, while throughput and cycle time
+describe historical events and never decrease retroactively when retries
+change the current attempt.
 Terminal time comes only from persisted immutable timestamps (`completed_at` on
 the attempt or the decisive verification row). Derived terminal states without
 one are counted in the summary cards but excluded from terminal throughput and
 cycle time, and surfaced via `terminalWithoutTimestamp`.
+Cycle time uses all historical terminal attempts.
 
 ### Verification
 

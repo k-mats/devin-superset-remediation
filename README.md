@@ -129,14 +129,19 @@ LOG_LEVEL=info
 The service exposes `GET /api/report` for a JSON report and `GET /dashboard`
 for a lightweight server-rendered HTML dashboard. Both report all persisted
 work in the configured `DATABASE_PATH` and include the runtime context
-(database path, environment, and configured repository). The report summary
-and dashboard cards count **tasks**, while the attempts-created throughput
-measure counts **attempts**. Success is defined strictly as the normalized
-`VERIFIED` state; a PR URL or open PR is not success.
+(database path, environment, and configured intake repository). The report
+summary and dashboard cards count **tasks**. Throughput measures count
+discovered, terminal, and verified **tasks**, while the attempts-created
+measure counts **attempts**. The summary describes the current task state;
+throughput and cycle time describe historical events and never decrease
+retroactively when retries change the current attempt. Success is defined
+strictly as the normalized `VERIFIED` state; a PR URL or open PR is not
+success.
 Terminal time comes only from persisted immutable timestamps (`completed_at` on
 the attempt or the decisive verification row). Derived terminal states without
 one are counted in the summary cards but excluded from terminal throughput and
-cycle time, and surfaced via `terminalWithoutTimestamp`.
+cycle time, and surfaced via `terminalWithoutTimestamp`. Cycle time uses all
+historical terminal attempts.
 
 Demo and test data use separate databases: `pnpm demo:restart` writes to
 `./data/demo-state-restart.db` by default and can be overridden with
