@@ -170,13 +170,13 @@ of each stage are linked under
 `VERIFICATION_WORKSPACE_ROOT=/app/data/verification`. `.env.example` is
 grouped the same way as this table and is safe to use unchanged.
 
-| Group           | Variables                                                                                                                                                                                                                             | Required for                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Minimal         | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH`, `LOG_LEVEL`                                                                                                                                                                              | Nothing — defaults in `.env.example` suffice for Path A                                                                        |
-| GitHub intake   | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (default `devin-ready`)                                                                                                                                | Path B: intake, dispatch revalidation, PR tracking, GitHub check evaluation. Token needs read access to issues/PRs of the fork |
-| Devin dispatch  | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL` (default `https://api.devin.ai/v3`), `DEVIN_MAX_ACU_PER_SESSION` (5)                                                                                                                 | Path B: dispatch and session tracking                                                                                          |
-| Optional tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS` (60000 each; `0` disables), `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_ENABLED`, `VERIFICATION_*_TIMEOUT_MS`, `VERIFICATION_MAX_OUTPUT_BYTES` | Nothing — sensible defaults                                                                                                    |
-| Not used yet    | `GITHUB_WEBHOOK_SECRET`                                                                                                                                                                                                               | Reserved for webhook intake (Issue #22); ignored by polling                                                                    |
+| Group           | Variables                                                                                                                                                                                                                                                                                       | Required for                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Minimal         | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH`, `LOG_LEVEL`                                                                                                                                                                                                                                        | Nothing — defaults in `.env.example` suffice for Path A                                                                        |
+| GitHub intake   | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (default `devin-ready`)                                                                                                                                                                                          | Path B: intake, dispatch revalidation, PR tracking, GitHub check evaluation. Token needs read access to issues/PRs of the fork |
+| Devin dispatch  | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL` (default `https://api.devin.ai/v3`), `DEVIN_MAX_ACU_PER_SESSION` (5)                                                                                                                                                                           | Path B: dispatch and session tracking                                                                                          |
+| Optional tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS` (60000 each; `0` disables), `DEVIN_DISPATCH_GRACE_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_ENABLED`, `VERIFICATION_*_TIMEOUT_MS`, `VERIFICATION_MAX_OUTPUT_BYTES` | Nothing — sensible defaults                                                                                                    |
+| Not used yet    | `GITHUB_WEBHOOK_SECRET`                                                                                                                                                                                                                                                                         | Reserved for webhook intake (Issue #22); ignored by polling                                                                    |
 
 With the GitHub or Devin group missing, the corresponding poller is skipped
 and a warning is logged at startup; the HTTP endpoints keep working.
@@ -273,13 +273,14 @@ credentials; the real-run stages were recorded separately as linked above.
 - **In-flight verification is not cancelled gracefully.** `docker compose
 stop` gives 15 s; a running checkout/setup/command (timeouts up to
   5 / 30 / 15 min) may be killed. Recorded state and workspaces persist on
-  the volume; restart reconciliation is a follow-up.
+  the volume; a mid-run verification is not reconciled across restarts.
 - **Polling, not webhooks.** Latency is bounded by the three interval
   settings (60 s each by default). Webhook intake is Issue #22.
 - **Recovery gaps are tracked, not hidden.** If `createSession` fails or
-  times out, the attempt stays `dispatching` (Issue #20 reconciliation);
-  transient revalidation failures release the claim for the next poll and
-  retry caps are Issue #21.
+  times out, the attempt stays `dispatching` and the Issue #20 reconciliation
+  poller adopts the matching Devin session by its correlation tag instead of
+  creating a second one; transient revalidation failures release the claim
+  for the next poll and retry caps are Issue #21.
 - **Unauthenticated report endpoints** — local / trusted network only.
 - **Single process, SQLite.** Designed for one orchestrator instance;
   duplicate-dispatch protection is enforced at the database level, not

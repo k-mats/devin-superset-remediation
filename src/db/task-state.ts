@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, max, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, max, ne, or } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -680,6 +680,26 @@ export function findPendingAttempts(
     .from(attempts)
     .innerJoin(tasks, eq(attempts.taskId, tasks.id))
     .where(eq(attempts.state, 'pending'))
+    .orderBy(asc(attempts.createdAt), asc(attempts.id))
+    .all();
+}
+
+export function findUncertainDispatchCandidates(
+  dispatchedBefore: number,
+  db: DbExecutor = getDb()
+): Array<{ attempt: Attempt; task: Task }> {
+  return db
+    .select({ attempt: attempts, task: tasks })
+    .from(attempts)
+    .innerJoin(tasks, eq(attempts.taskId, tasks.id))
+    .where(
+      and(
+        eq(attempts.state, 'dispatching'),
+        isNull(attempts.devinSessionId),
+        isNotNull(attempts.dispatchedAt),
+        lte(attempts.dispatchedAt, dispatchedBefore)
+      )
+    )
     .orderBy(asc(attempts.createdAt), asc(attempts.id))
     .all();
 }

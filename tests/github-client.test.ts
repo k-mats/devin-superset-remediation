@@ -29,6 +29,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinApiUrl: 'https://api.devin.ai/v3',
     devinDispatchIntervalMs: 0,
     devinTrackingIntervalMs: 0,
+    devinReconcileIntervalMs: 0,
+    devinDispatchGraceMs: 300_000,
     devinSessionStaleWarnMs: 21_600_000,
     devinMaxAcuPerSession: 5,
     verificationEnabled: true,

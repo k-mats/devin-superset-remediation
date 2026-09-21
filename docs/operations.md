@@ -34,12 +34,12 @@ credentials unset the application still starts and serves health, readiness,
 reporting, and the dashboard — only GitHub intake, Devin dispatch, and
 session/PR tracking are skipped (each logs a warning).
 
-| Group                      | Variables                                                                                                                                                              | Required?                               |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                        | No — defaults in `.env.example` suffice |
-| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (`GITHUB_WEBHOOK_SECRET` is reserved for webhook intake, Issue #22 — unused by polling) | Only for real orchestration             |
-| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                          | Only for real orchestration             |
-| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*`                                 | No — sensible defaults                  |
+| Group                      | Variables                                                                                                                                                                                        | Required?                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                                                  | No — defaults in `.env.example` suffice |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL` (`GITHUB_WEBHOOK_SECRET` is reserved for webhook intake, Issue #22 — unused by polling)                           | Only for real orchestration             |
+| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                                                    | Only for real orchestration             |
+| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS`, `DEVIN_DISPATCH_GRACE_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*` | No — sensible defaults                  |
 
 For local development outside Docker, `.env.example` sets
 `NODE_ENV=development`, `PORT=3000`, `DATABASE_PATH=./database.db`,
@@ -227,8 +227,8 @@ network/timeout, or
 parse errors) instead release the claim back to `pending` and the attempt
 is retried on the next poll — retry caps are owned by Issue #21. If
 `createSession` fails or times out, the attempt is intentionally left in
-`dispatching` — a session may exist server-side, and Issue #20
-reconciliation owns recovery.
+`dispatching` — a session may exist server-side, and uncertain-dispatch
+reconciliation (Issue #20, below) owns recovery.
 
 Migration `0002` reconciles legacy data before creating the partial index:
 tasks with multiple active attempts keep the newest active row (preferring
@@ -245,6 +245,41 @@ with:
 ```bash
 pnpm demo:dispatch
 ```
+
+### Uncertain dispatch reconciliation (Issue #20)
+
+When `createSession` fails or times out, a session may exist server-side
+without the orchestrator ever seeing its id; the attempt stays `dispatching`
+with a null `devin_session_id` and is never redispatched. A reconciliation
+poller periodically selects such attempts once their `dispatched_at` is older
+than `DEVIN_DISPATCH_GRACE_MS` (default 300000 milliseconds) and looks the
+session up on the provider instead of recreating it.
+
+For each candidate the reconciler calls `GET
+/v3/organizations/{org_id}/sessions?tags=correlation:<uuid>&first=200` — the
+correlation tag is a per-attempt UUID written into `buildSessionTags`, so it
+identifies at most one session. Provider capability (verified live): matching
+is exact and case-sensitive, multiple `tags=` params are ORed (the reconciler
+therefore queries the single correlation tag and verifies the full expected
+tag set client-side), pagination uses `first`/`after`/`end_cursor`, and the
+endpoint requires a service user with `ViewOrgSessions`. `is_archived` is
+never sent — archived sessions remain eligible for adoption. Decisions:
+`session_adopted` (exactly one match carrying all expected tags →
+`markSessionCreated`, after which the tracking poller takes over),
+`already_adopted` (a concurrent adopter won; the guarded UPDATE is atomic),
+`no_match`, `ambiguous_match`, `identity_mismatch` (matched session missing
+expected tags), and `lookup_unavailable` (provider error). Every non-adopted
+decision leaves the attempt `dispatching` for a later pass — reconciliation
+never creates a session, releases the claim, or calls GitHub.
+
+Reconciliation requires only `DEVIN_API_KEY` and `DEVIN_ORG_ID`.
+`DEVIN_RECONCILE_INTERVAL_MS` defaults to 60000 milliseconds; set it to `0`
+to disable. The poller runs once at startup and then on the interval.
+
+Because the pollers are stateless over SQLite, restart recovery otherwise
+needs no explicit pass: `session_created`/`running`/`verifying` attempts and
+completed attempts with tracked open pull requests are picked up by the
+tracking poller on its next run.
 
 ### Structured output collection (Issue #10)
 
