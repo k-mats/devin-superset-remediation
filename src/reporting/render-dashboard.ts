@@ -66,7 +66,7 @@ function renderSessionEvidence(attempt: LedgerAttemptEvidence): string {
     attempt.devinSessionStatusDetail === null
       ? ''
       : ` · ${escapeHtml(attempt.devinSessionStatusDetail)}`;
-  return `${session}<small>${escapeHtml(status)}${detail}<br>ACU observed: ${escapeHtml(formatAcus(attempt.acusConsumed))}<br>session snapshot: ${escapeHtml(formatTime(attempt.timestamps.sessionUpdatedAt))}</small>`;
+  return `${session}<small>${escapeHtml(status)}${detail}<br>ACU observed: ${escapeHtml(formatAcus(attempt.acusConsumed))}<br>observed at: ${escapeHtml(formatTime(attempt.timestamps.sessionLastPolledAt))}</small>`;
 }
 
 function renderPrEvidence(attempt: LedgerAttemptEvidence): string {

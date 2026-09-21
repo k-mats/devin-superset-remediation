@@ -166,6 +166,7 @@ export interface LedgerAttemptEvidence {
     dispatchedAt: number | null;
     sessionCreatedAt: number | null;
     sessionUpdatedAt: number | null;
+    sessionLastPolledAt: number | null;
     prLastCheckedAt: number | null;
     completedAt: number | null;
     terminalAt: number | null;
@@ -355,6 +356,7 @@ function toLedgerAttempt(
       dispatchedAt: attempt.dispatchedAt,
       sessionCreatedAt: attempt.sessionCreatedAt,
       sessionUpdatedAt: attempt.sessionUpdatedAt,
+      sessionLastPolledAt: attempt.sessionLastPolledAt,
       prLastCheckedAt: attempt.prLastCheckedAt,
       completedAt: attempt.completedAt,
       terminalAt: reportAttempt.terminalAt,

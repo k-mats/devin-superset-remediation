@@ -444,6 +444,7 @@ describe('report model', () => {
       expect(current.approval.approvedBy).toBe('operator');
       expect(current.approval.approvedAt).not.toBeNull();
       expect(current.acusConsumed).toBe(2.5);
+      expect(current.timestamps).toHaveProperty('sessionLastPolledAt');
     });
 
     it('separates verification of a superseded PR head as stale evidence', () => {
@@ -538,6 +539,7 @@ describe('report model', () => {
       expect(current.verification.stale).toEqual([]);
       expect(renderDashboard(report)).toContain('prior command');
       expect(renderDashboard(report)).toContain('2 prior run(s) for this head');
+      expect(renderDashboard(report)).toContain('observed at:');
     });
 
     it('preserves unknown ACU as null and omits raw verification payloads', () => {
