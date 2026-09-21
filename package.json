@@ -22,6 +22,7 @@
     "demo:intake": "tsx scripts/intake-demo.ts",
     "demo:dispatch": "tsx scripts/dispatch-demo.ts",
     "demo:structured-output": "tsx scripts/structured-output-demo.ts",
+    "demo:tracking": "tsx scripts/tracking-demo.ts",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test && pnpm build"
   },
   "packageManager": "pnpm@12.4.2",

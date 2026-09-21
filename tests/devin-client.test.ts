@@ -38,6 +38,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinOrgId: 'org_123',
     devinApiUrl: 'https://api.devin.ai/v3',
     devinDispatchIntervalMs: 0,
+    devinTrackingIntervalMs: 0,
+    devinSessionStaleWarnMs: 21_600_000,
     devinMaxAcuPerSession: 5,
     ...overrides,
   };

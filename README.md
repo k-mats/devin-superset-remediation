@@ -165,6 +165,30 @@ output of a finished session once with:
 pnpm demo:structured-output --attempt <id>          # or --correlation <uuid>
 ```
 
+### Session and pull request lifecycle tracking (Issue #11)
+
+The tracking poller records Devin session snapshots, collects structured agent
+outcomes, verifies agent-reported pull requests against the task repository and
+issue, and refreshes tracked pull request state and head SHA. Session
+observations, agent outcomes, verified PR identity, and orchestrator outcomes
+are persisted separately. The lifecycle can move through
+`session_created -> running -> verifying -> completed`; `no_action` is an
+orchestrator outcome for an agent that reports no remediation was needed.
+
+Tracking requires `GITHUB_TOKEN`, `DEVIN_API_KEY`, and `DEVIN_ORG_ID`; repository
+owner/name are read from each persisted task. `DEVIN_TRACKING_INTERVAL_MS`
+defaults to 60000 milliseconds and set to `0` disables tracking. Stale-session
+warnings use `DEVIN_SESSION_STALE_WARN_MS`, defaulting to 21600000 milliseconds;
+set it to `0` to disable warnings. Run one pass with:
+
+```bash
+pnpm demo:tracking
+pnpm demo:tracking -- --attempt <id>
+```
+
+See [docs/evidence/issue-11-session-pr-lifecycle.md](docs/evidence/issue-11-session-pr-lifecycle.md)
+for live-run evidence.
+
 ### Devin API smoke test (Issue #5)
 
 A reusable Devin v3 Organization API client lives in `src/devin/client.ts`. To

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, isNull, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, max, or } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -29,6 +29,10 @@ function normalizeIdentity(input: TaskIdentityInput): TaskIdentityInput {
   };
 }
 
+function normalizePullRequestUrl(url: string): string {
+  return url.replace(/\/+$/, '').toLowerCase();
+}
+
 function identityWhere(input: TaskIdentityInput) {
   const identity = normalizeIdentity(input);
   return and(
@@ -41,8 +45,9 @@ function identityWhere(input: TaskIdentityInput) {
 export const ALLOWED_TRANSITIONS: Record<AttemptState, readonly AttemptState[]> = {
   pending: ['dispatching', 'completed'],
   dispatching: ['pending', 'session_created', 'completed'],
-  session_created: ['running', 'completed'],
-  running: ['completed'],
+  session_created: ['running', 'verifying', 'completed'],
+  running: ['verifying', 'completed'],
+  verifying: ['completed'],
   completed: [],
 };
 
@@ -64,6 +69,13 @@ export class ActiveAttemptExistsError extends Error {
   constructor(taskId: number) {
     super(`Task ${String(taskId)} already has an active attempt`);
     this.name = 'ActiveAttemptExistsError';
+  }
+}
+
+export class PullRequestMismatchError extends Error {
+  constructor(attemptId: number) {
+    super(`Pull request identity changed for attempt ${String(attemptId)}`);
+    this.name = 'PullRequestMismatchError';
   }
 }
 
@@ -233,18 +245,75 @@ export function markRunning(attemptId: number, db: DbExecutor = getDb()): Attemp
   return transitionAttempt(attemptId, 'running', {}, db);
 }
 
-export function setPrUrl(attemptId: number, prUrl: string, db: DbExecutor = getDb()): Attempt {
+export function markVerifying(attemptId: number, db: DbExecutor = getDb()): Attempt {
+  return transitionAttempt(attemptId, 'verifying', {}, db);
+}
+
+export function recordSessionSnapshot(
+  attemptId: number,
+  input: {
+    status: string;
+    statusDetail: string | null | undefined;
+    acusConsumed: number | null | undefined;
+    sessionUpdatedAt: number;
+  },
+  db: DbExecutor = getDb()
+): Attempt {
   const attempt = requireAttempt(attemptId, db);
-  if (attempt.state === 'completed') {
-    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+  if (attempt.devinSessionId === null) {
+    throw new Error(`Attempt ${String(attemptId)} has no Devin session id`);
   }
   const result = db
     .update(attempts)
-    .set({ prUrl, updatedAt: Date.now() })
-    .where(and(eq(attempts.id, attemptId), eq(attempts.state, attempt.state)))
+    .set({
+      devinSessionStatus: input.status,
+      devinSessionStatusDetail: input.statusDetail ?? null,
+      acusConsumed: input.acusConsumed ?? null,
+      sessionUpdatedAt: input.sessionUpdatedAt,
+      sessionLastPolledAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(attempts.id, attemptId))
     .run();
   if (result.changes !== 1) {
-    throw new InvalidTransitionError(attemptId, attempt.state, attempt.state);
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function recordPullRequest(
+  attemptId: number,
+  input: {
+    prUrl: string;
+    prNumber: number;
+    prState: 'open' | 'closed' | 'merged';
+    prHeadSha: string;
+  },
+  db: DbExecutor = getDb()
+): Attempt {
+  const attempt = requireAttempt(attemptId, db);
+  if (
+    (attempt.prNumber !== null && attempt.prNumber !== input.prNumber) ||
+    (attempt.prUrl !== null &&
+      normalizePullRequestUrl(attempt.prUrl) !== normalizePullRequestUrl(input.prUrl))
+  ) {
+    throw new PullRequestMismatchError(attemptId);
+  }
+  const now = Date.now();
+  const result = db
+    .update(attempts)
+    .set({
+      prUrl: input.prUrl,
+      prNumber: input.prNumber,
+      prState: input.prState,
+      prHeadSha: input.prHeadSha,
+      prLastCheckedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(attempts.id, attemptId))
+    .run();
+  if (result.changes !== 1) {
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
   }
   return requireAttempt(attemptId, db);
 }
@@ -363,5 +432,41 @@ export function findStaleDispatchingAttempts(db: DbExecutor = getDb()): Attempt[
     .select()
     .from(attempts)
     .where(and(eq(attempts.state, 'dispatching'), isNull(attempts.devinSessionId)))
+    .all();
+}
+
+export function findTrackableAttempts(
+  db: DbExecutor = getDb()
+): Array<{ attempt: Attempt; task: Task }> {
+  return db
+    .select({ attempt: attempts, task: tasks })
+    .from(attempts)
+    .innerJoin(tasks, eq(attempts.taskId, tasks.id))
+    .where(
+      and(
+        isNull(attempts.outcome),
+        isNotNull(attempts.devinSessionId),
+        inArray(attempts.state, ['session_created', 'running', 'verifying'])
+      )
+    )
+    .orderBy(asc(attempts.createdAt), asc(attempts.id))
+    .all();
+}
+
+export function findCompletedAttemptsWithTrackedPullRequests(
+  db: DbExecutor = getDb()
+): Array<{ attempt: Attempt; task: Task }> {
+  return db
+    .select({ attempt: attempts, task: tasks })
+    .from(attempts)
+    .innerJoin(tasks, eq(attempts.taskId, tasks.id))
+    .where(
+      and(
+        eq(attempts.state, 'completed'),
+        isNotNull(attempts.prNumber),
+        or(isNull(attempts.prState), eq(attempts.prState, 'open'))
+      )
+    )
+    .orderBy(asc(attempts.createdAt), asc(attempts.id))
     .all();
 }

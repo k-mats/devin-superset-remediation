@@ -13,6 +13,7 @@ import {
   claimAttemptForDispatch,
   completeAttempt,
   createAttempt,
+  findCompletedAttemptsWithTrackedPullRequests,
   findPendingAttempts,
   findStaleDispatchingAttempts,
   getAttemptByCorrelationId,
@@ -24,8 +25,9 @@ import {
   releaseDispatchClaim,
   markRunning,
   markSessionCreated,
+  PullRequestMismatchError,
   recordStructuredOutput,
-  setPrUrl,
+  recordPullRequest,
   upsertTask,
 } from '../src/db/task-state.js';
 
@@ -60,7 +62,12 @@ describe('task state repository', () => {
       devinSessionUrl: 'https://app.devin.ai/sessions/devin-101',
     });
     const running = markRunning(attempt.id);
-    const withPr = setPrUrl(attempt.id, 'https://github.com/k-mats/superset-fork/pull/101');
+    const withPr = recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/k-mats/superset-fork/pull/101',
+      prNumber: 101,
+      prState: 'open',
+      prHeadSha: 'sha',
+    });
     const completed = completeAttempt(attempt.id, 'succeeded');
 
     expect(dispatching.dispatchedAt).toEqual(expect.any(Number));
@@ -85,7 +92,12 @@ describe('task state repository', () => {
     markDispatching(first.id);
     markSessionCreated(first.id, { devinSessionId: 'restart-session' });
     markRunning(first.id);
-    setPrUrl(first.id, 'https://github.com/k-mats/superset-fork/pull/1');
+    recordPullRequest(first.id, {
+      prUrl: 'https://github.com/k-mats/superset-fork/pull/1',
+      prNumber: 1,
+      prState: 'open',
+      prHeadSha: 'sha',
+    });
     completeAttempt(first.id, 'succeeded');
     const second = createAttempt(task.id);
     markDispatching(second.id);
@@ -108,6 +120,69 @@ describe('task state repository', () => {
       })
     ).toEqual(beforeTask);
     expect(listAttempts(task.id)).toEqual(beforeAttempts);
+  });
+
+  it('compares pull request identity by number while guarding URL-only rows', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 102 });
+    const attempt = createAttempt(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'canonicalize-session' });
+    markRunning(attempt.id);
+    const rawDb = getRawDb();
+    if (!rawDb) throw new Error('Raw database was not initialized');
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ? WHERE id = ?')
+      .run('https://github.com/Acme/Widget/pull/42/', 42, attempt.id);
+
+    const refreshed = recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/acme/widget/pull/42',
+      prNumber: 42,
+      prState: 'open',
+      prHeadSha: 'abc',
+    });
+    expect(refreshed.prUrl).toBe('https://github.com/acme/widget/pull/42');
+    expect(() =>
+      recordPullRequest(attempt.id, {
+        prUrl: 'https://github.com/owner/repo/pull/43',
+        prNumber: 43,
+        prState: 'open',
+        prHeadSha: 'def',
+      })
+    ).toThrow(PullRequestMismatchError);
+    completeAttempt(attempt.id, 'succeeded');
+
+    const repositoryChanged = createAttempt(task.id);
+    markDispatching(repositoryChanged.id);
+    markSessionCreated(repositoryChanged.id, { devinSessionId: 'repository-change-session' });
+    markRunning(repositoryChanged.id);
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ? WHERE id = ?')
+      .run('https://github.com/other/project/pull/42/', 42, repositoryChanged.id);
+    expect(() =>
+      recordPullRequest(repositoryChanged.id, {
+        prUrl: 'https://github.com/acme/widget/pull/42',
+        prNumber: 42,
+        prState: 'open',
+        prHeadSha: 'ghi',
+      })
+    ).toThrow(PullRequestMismatchError);
+    completeAttempt(repositoryChanged.id, 'succeeded');
+
+    const urlOnly = createAttempt(task.id);
+    markDispatching(urlOnly.id);
+    markSessionCreated(urlOnly.id, { devinSessionId: 'url-only-session' });
+    completeAttempt(urlOnly.id, 'succeeded');
+    rawDb
+      .prepare('UPDATE attempts SET pr_url = ?, pr_number = NULL WHERE id = ?')
+      .run('https://github.com/other/project/pull/42/', urlOnly.id);
+    expect(() =>
+      recordPullRequest(urlOnly.id, {
+        prUrl: 'https://github.com/acme/widget/pull/42',
+        prNumber: 42,
+        prState: 'open',
+        prHeadSha: 'ghi',
+      })
+    ).toThrow(PullRequestMismatchError);
   });
 
   it('numbers and lists multiple attempts in order', () => {
@@ -202,7 +277,14 @@ describe('task state repository', () => {
     expect(() => markDispatching(attempt.id)).toThrow(InvalidTransitionError);
     completeAttempt(attempt.id, 'succeeded');
     expect(() => markRunning(attempt.id)).toThrow(InvalidTransitionError);
-    expect(() => setPrUrl(attempt.id, 'https://example.com/pr')).toThrow(InvalidTransitionError);
+    expect(() =>
+      recordPullRequest(attempt.id, {
+        prUrl: 'https://example.com/pr',
+        prNumber: 1,
+        prState: 'open',
+        prHeadSha: 'sha',
+      })
+    ).not.toThrow();
     expect(() => completeAttempt(attempt.id, 'failed')).toThrow(InvalidTransitionError);
     expect(() => recordStructuredOutput(attempt.id, { raw: null, parsed: undefined })).toThrow(
       InvalidTransitionError
@@ -655,5 +737,35 @@ describe('task state repository', () => {
     completeAttempt(completed.id, 'failed');
 
     expect(findStaleDispatchingAttempts().map((attempt) => attempt.id)).toEqual([stale.id]);
+  });
+
+  it('tracks completed pull requests until they are closed or merged', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 4 });
+    const rawDb = getRawDb();
+    if (!rawDb) throw new Error('Raw database was not initialized');
+    const setPrState = (prState: 'open' | 'closed' | 'merged' | null) => {
+      const attempt = createAttempt(task.id);
+      markDispatching(attempt.id);
+      markSessionCreated(attempt.id, { devinSessionId: `legacy-session-${String(attempt.id)}` });
+      completeAttempt(attempt.id, 'succeeded');
+      rawDb
+        .prepare('UPDATE attempts SET pr_url = ?, pr_number = ?, pr_state = ? WHERE id = ?')
+        .run('https://github.com/owner/repo/pull/42', 42, prState, attempt.id);
+      return attempt.id;
+    };
+    const unknown = setPrState(null);
+    const open = setPrState('open');
+    const closed = setPrState('closed');
+    const merged = setPrState('merged');
+
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).toEqual([unknown, open]);
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).not.toContain(closed);
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).not.toContain(merged);
   });
 });

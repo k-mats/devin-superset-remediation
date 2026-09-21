@@ -8,6 +8,7 @@ import { createGitHubClientFromConfig, type GitHubClient } from './github/client
 import { createDevinClientFromConfig } from './devin/client.js';
 import { startIntakePoller } from './intake/github-intake.js';
 import { startDispatchPoller } from './dispatch/devin-dispatcher.js';
+import { startTrackingPoller } from './tracking/session-tracker.js';
 
 export async function buildServer() {
   // Bring the schema up to date before the server can accept traffic.
@@ -89,8 +90,33 @@ export async function buildServer() {
     }
   }
 
+  let stopTrackingPoller: (() => Promise<void>) | undefined;
+  if (config.devinTrackingIntervalMs === 0) {
+    server.log.info('Devin session tracking polling disabled');
+  } else {
+    const missing: string[] = [];
+    if (!config.githubToken) missing.push('GITHUB_TOKEN');
+    if (!config.devinApiKey) missing.push('DEVIN_API_KEY');
+    if (!config.devinOrgId) missing.push('DEVIN_ORG_ID');
+    if (missing.length > 0) {
+      server.log.warn(
+        { missing },
+        'Devin session tracking polling skipped because configuration is incomplete'
+      );
+    } else {
+      const poller = startTrackingPoller({
+        github: getGitHubClient(),
+        devin: createDevinClientFromConfig(config),
+        staleWarnMs: config.devinSessionStaleWarnMs,
+        intervalMs: config.devinTrackingIntervalMs,
+        logger: server.log,
+      });
+      stopTrackingPoller = () => poller.stop();
+    }
+  }
+
   server.addHook('preClose', async () => {
-    await Promise.all([stopIntakePoller?.(), stopDispatchPoller?.()]);
+    await Promise.all([stopIntakePoller?.(), stopDispatchPoller?.(), stopTrackingPoller?.()]);
   });
 
   // Clean up resources whenever the Fastify instance is closed.

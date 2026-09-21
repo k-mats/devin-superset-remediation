@@ -21,6 +21,25 @@ export const githubIssueSchema = z
 
 export type GitHubIssue = z.infer<typeof githubIssueSchema>;
 
+export const githubPullRequestSchema = z
+  .object({
+    number: z.number().int().positive(),
+    html_url: z.string(),
+    title: z.string(),
+    state: z.enum(['open', 'closed']),
+    merged_at: z.string().nullish(),
+    body: z.string().nullish(),
+    head: z.object({ sha: z.string() }).loose(),
+    base: z.object({ repo: z.object({ full_name: z.string() }).loose() }).loose(),
+  })
+  .loose();
+
+export type GitHubPullRequest = z.infer<typeof githubPullRequestSchema>;
+
+export function derivePrState(pr: GitHubPullRequest): 'open' | 'closed' | 'merged' {
+  return pr.merged_at != null ? 'merged' : pr.state;
+}
+
 export interface GitHubClientOptions {
   token: string;
   baseUrl?: string;
@@ -87,6 +106,18 @@ export class GitHubClient {
     const path = `/repos/${owner}/${repo}/issues/${String(issueNumber)}`;
     const json = await this.request(path);
     const parsed = githubIssueSchema.safeParse(json);
+    if (!parsed.success) {
+      throw new Error(
+        `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`
+      );
+    }
+    return parsed.data;
+  }
+
+  async getPullRequest(owner: string, repo: string, number: number): Promise<GitHubPullRequest> {
+    const path = `/repos/${owner}/${repo}/pulls/${String(number)}`;
+    const json = await this.request(path);
+    const parsed = githubPullRequestSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(
         `GitHub API GET ${path} returned an unexpected response: ${parsed.error.message}`

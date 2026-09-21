@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Config } from '../src/config.js';
 import {
   createGitHubClientFromConfig,
+  derivePrState,
   GitHubApiError,
   GitHubClient,
 } from '../src/github/client.js';
@@ -27,6 +28,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     devinOrgId: undefined,
     devinApiUrl: 'https://api.devin.ai/v3',
     devinDispatchIntervalMs: 0,
+    devinTrackingIntervalMs: 0,
+    devinSessionStaleWarnMs: 21_600_000,
     devinMaxAcuPerSession: 5,
     ...overrides,
   };
@@ -95,6 +98,51 @@ describe('GitHubClient', () => {
     expect(init?.method).toBe('GET');
     expect((init?.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
     expect(result).toMatchObject({ number: 7, body: 'describe it' });
+  });
+
+  it.each([
+    ['open', null, 'open'],
+    ['closed', null, 'closed'],
+    ['closed', '2026-01-01T00:00:00Z', 'merged'],
+  ] as const)(
+    'fetches pull requests and derives %s/%s as %s',
+    async (state, mergedAt, expected) => {
+      const fetchFn = vi.fn<typeof fetch>(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              number: 11,
+              html_url: 'https://github.com/owner/repo/pull/11',
+              title: 'Fix #7',
+              state,
+              merged_at: mergedAt,
+              body: null,
+              head: { sha: 'abc' },
+              base: { repo: { full_name: 'owner/repo' } },
+            }),
+            { status: 200 }
+          )
+        )
+      );
+      const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+      const pr = await client.getPullRequest('owner', 'repo', 11);
+
+      expect(fetchFn.mock.calls[0]?.[0]).toBe('https://api.github.com/repos/owner/repo/pulls/11');
+      expect(derivePrState(pr)).toBe(expected);
+    }
+  );
+
+  it('raises GitHubApiError for a missing pull request', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('missing', { status: 404 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    await expect(client.getPullRequest('owner', 'repo', 11)).rejects.toMatchObject({
+      name: 'GitHubApiError',
+      status: 404,
+    });
   });
 
   it('throws GitHubApiError for a missing issue', async () => {

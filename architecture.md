@@ -52,17 +52,26 @@ verification/reporting
 
 The orchestrator stores each GitHub issue as a `tasks` row and each Devin
 execution as an `attempts` row. Attempt state moves from `pending` to
-`dispatching` to `session_created` to `running` to `completed`, with outcomes
-of `succeeded`, `failed`, `cancelled`, or `escalated`; `pending` may also move
-directly to `completed` (cancelled before dispatch). The orchestrator commits
+`dispatching` to `session_created` to `running` to `verifying` to `completed`,
+with outcomes of `succeeded`, `failed`, `cancelled`, `escalated`, or `no_action`;
+`pending` may also move directly to `completed` (cancelled before dispatch).
+The orchestrator commits
 `dispatching` before calling the Devin session API, then saves
 `devin_session_id` and `session_created` after success. A `dispatching` attempt
 with a NULL session ID is the reconciliation signal after a crash.
 `correlation_id` is the stable identifier reserved for a future Devin session
 tag. A partial unique index on `attempts.task_id` restricts each task to at
-most one active (`pending`, `dispatching`, `session_created`, or `running`)
-attempt, and `outcome_reason` records why a `cancelled` or `failed` attempt
-was completed.
+most one active (`pending`, `dispatching`, `session_created`, `running`, or
+`verifying`) attempt, and `outcome_reason` records why an attempt was
+completed.
+
+Session state (`devin_session_status`, status detail, usage, and timestamps),
+the agent's structured outcome (`agent_outcome` and agent-reported PR URL), the
+verified pull request (`pr_url`, number, state, and head SHA), and the
+orchestrator outcome (`outcome`) are four separate concepts. A verified PR
+enters `verifying` while it is tracked independently from the agent report;
+the orchestrator only completes the attempt after the lifecycle decision is
+made.
 
 Each dispatched session is created with `structured_output_required` and a
 JSON Schema (version 1, defined in `src/devin/structured-output.ts`)

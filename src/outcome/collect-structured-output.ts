@@ -28,6 +28,7 @@ export interface CollectStructuredOutputOptions {
   devin: Pick<DevinClient, 'getSession'>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
+  session?: SessionResponse;
 }
 
 export interface CollectStructuredOutputResult {
@@ -64,7 +65,7 @@ export async function collectStructuredOutput(
     return { decision: 'already_recorded' };
   }
 
-  const session = await opts.devin.getSession(attempt.devinSessionId);
+  const session = opts.session ?? (await opts.devin.getSession(attempt.devinSessionId));
   const phase = classifySessionPhase(session);
   const hasOutput = session.structured_output !== null && session.structured_output !== undefined;
   const phaseContext = { ...logContext, status: session.status, phase };
