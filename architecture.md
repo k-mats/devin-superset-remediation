@@ -75,6 +75,22 @@ enters `verifying` while it is tracked independently from the agent report;
 the orchestrator only completes the attempt after the lifecycle decision is
 made.
 
+### Normalized task state
+
+Issue #14 adds a derived projection (`src/tracking/normalized-task-state.ts`)
+that answers "where is this task right now?" with a single normalized value
+(`QUEUED`, `DISPATCHING`, `RUNNING`, `PR_OPEN`, `CI_PENDING`, `VERIFYING`,
+`VERIFICATION_FAILED`, `VERIFIED`, `NEEDS_HUMAN`, `NO_ACTION`, `FAILED`, or
+`CANCELLED`) plus a machine-readable reason. It is computed on demand from
+the attempt row and the latest `command`/`github_checks` verification rows
+for the current PR head — no columns are stored and no new source of truth
+is introduced; evidence keyed to a superseded head SHA is ignored. The raw
+provider facts (`devin_session_status`, `pr_state`, outcome reason,
+verification rows) are carried alongside the normalized value in
+`projection.raw` so the projection never replaces them. The session tracker
+emits the projection as a structured log line at the end of each tracking
+pass, and `pnpm verification:show` prints it next to the raw facts.
+
 ### Verification
 
 Independent verification (Issue #13) keeps two kinds of state on `attempts`: a

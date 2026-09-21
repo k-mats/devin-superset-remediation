@@ -24,7 +24,8 @@ devin-superset-remediation/
 │   │   ├── collect-structured-output.ts # One-shot structured output collection (Issue #10)
 │   │   └── verify-pull-request.ts # Agent PR verification (Issue #11)
 │   ├── tracking/
-│   │   └── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
+│   │   ├── session-tracker.ts # Devin session and PR lifecycle tracking (Issue #11)
+│   │   └── normalized-task-state.ts # Derived normalized task-state projection (Issue #14)
 │   ├── verification/         # Independent remediation verification (Issue #13)
 │   │   ├── spec.ts           # Issue `## Verification` section parser and spec hashing
 │   │   ├── approval.ts       # Candidate vs approved spec status derivation
@@ -54,7 +55,8 @@ devin-superset-remediation/
 │   ├── health.test.ts        # Health endpoint test
 │   ├── database.test.ts      # Database integration test
 │   ├── task-state.test.ts    # Persistent task state tests
-│   └── session-tracker.test.ts # Session and PR tracking tests
+│   ├── session-tracker.test.ts # Session and PR tracking tests
+│   └── normalized-task-state.test.ts # Normalized task-state projection tests
 ├── drizzle/                  # Drizzle migrations
 ├── package.json              # pnpm configuration
 ├── tsconfig.json             # TypeScript configuration
