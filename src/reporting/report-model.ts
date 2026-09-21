@@ -105,6 +105,11 @@ export interface WindowCounts {
   last7d: number;
 }
 
+/**
+ * Summary fields describe the current task state; throughput and cycle time
+ * describe historical events and never decrease retroactively when retries
+ * change the current attempt.
+ */
 export interface Report {
   generatedAt: string;
   context: {
@@ -142,12 +147,6 @@ export interface Report {
   tasks: ReportTaskRow[];
   tasksWithoutAttempts: number;
 }
-
-/**
- * Summary fields describe the current task state; throughput and cycle time
- * describe historical events and never decrease retroactively when retries
- * change the current attempt.
- */
 
 const dayMs = 24 * 60 * 60 * 1000;
 
