@@ -95,10 +95,10 @@ export function deriveTaskState(
   const done = (state: NormalizedTaskState, reason: string) =>
     projection(attempt, state, reason, latestCommand, latestGitHubChecks);
 
-  if (attempt.state === 'completed') {
+  const succeeded = attempt.outcome === 'succeeded';
+
+  if (attempt.state === 'completed' && !succeeded) {
     switch (attempt.outcome) {
-      case 'succeeded':
-        return done('VERIFIED', 'outcome_succeeded');
       case 'no_action':
         return done('NO_ACTION', 'outcome_no_action');
       case 'cancelled':
@@ -107,12 +107,14 @@ export function deriveTaskState(
         return done('NEEDS_HUMAN', 'outcome_escalated');
       case 'failed':
         return done('FAILED', 'outcome_failed');
+      case 'succeeded':
+        throw new Error('unreachable: succeeded outcome is handled below');
       case null:
         throw new Error(`Attempt ${String(attempt.id)} is completed without an outcome`);
     }
   }
 
-  if (attempt.state !== 'verifying') {
+  if (attempt.state !== 'verifying' && attempt.state !== 'completed') {
     switch (attempt.state) {
       case 'pending':
         return done('QUEUED', 'attempt_pending');
@@ -125,15 +127,22 @@ export function deriveTaskState(
     }
   }
 
-  // state === 'verifying'
+  // state === 'verifying' OR completed with outcome succeeded:
+  // VERIFIED is a property of the current tracked PR head, not the historical outcome.
+  const approved = approvalStatus(attempt) === 'approved';
+  const decisive = (row: Verification): boolean =>
+    approved && row.specSha256 !== null && row.specSha256 === attempt.verificationApprovedSha256;
+
+  if (latestCommand?.status === 'passed' && decisive(latestCommand)) {
+    return done('VERIFIED', 'command_verification_passed');
+  }
   if (attempt.prState === 'closed') {
     return done('NEEDS_HUMAN', 'pr_closed_without_merge');
   }
-  if (
-    latestCommand?.status === 'failed' &&
-    latestCommand.specSha256 !== null &&
-    latestCommand.specSha256 === attempt.verificationApprovedSha256
-  ) {
+  if (attempt.prState === 'merged') {
+    return done('NEEDS_HUMAN', 'pr_merged_before_verification');
+  }
+  if (latestCommand?.status === 'failed' && decisive(latestCommand)) {
     return done('VERIFICATION_FAILED', 'command_verification_failed');
   }
   if (
@@ -145,12 +154,21 @@ export function deriveTaskState(
   if (latestCommand?.status === 'error') {
     return done('VERIFYING', 'command_verification_error');
   }
-  const approval = approvalStatus(attempt);
-  if (approval === 'approved') {
-    return done('VERIFYING', 'approved_spec_awaiting_run');
+  if (attempt.state === 'verifying') {
+    const approval = approvalStatus(attempt);
+    if (approval === 'approved') {
+      return done('VERIFYING', 'approved_spec_awaiting_run');
+    }
+    if (approval === 'pending_approval') {
+      return done('VERIFYING', 'spec_pending_approval');
+    }
+  } else if (latestCommand?.status === 'unverified') {
+    // completed + succeeded: the verifier no longer runs, so approval status
+    // alone is not activity — only a recorded run for the current head counts.
+    return done('VERIFYING', 'current_head_verification_pending');
   }
-  if (approval === 'pending_approval') {
-    return done('VERIFYING', 'spec_pending_approval');
+  if (succeeded) {
+    return done('PR_OPEN', 'verified_head_superseded');
   }
   if (attempt.prHeadSha === null) {
     return done('PR_OPEN', 'pr_head_unknown');

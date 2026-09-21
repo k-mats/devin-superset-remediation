@@ -4,6 +4,7 @@ import { attempts, tasks, verifications } from '../src/db/schema.js';
 import type { Attempt, Verification } from '../src/db/schema.js';
 import {
   approveVerificationSpec,
+  completeVerifiedAttempt,
   createAttempt,
   getAttempt,
   markDispatching,
@@ -273,15 +274,145 @@ describe('deriveTaskState', () => {
       reason: 'pr_closed_without_merge',
     },
     {
-      name: 'completed succeeded is VERIFIED',
-      attempt: makeAttempt({
+      name: 'completed succeeded with a decisive passed row for the current head is VERIFIED',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
         state: 'completed',
         outcome: 'succeeded',
         outcomeReason: 'independent_verification_passed: head-1',
-        devinSessionId: 's',
+        completedAt: 1,
       }),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'passed',
+          specSha256: 'sha-x',
+        }),
+      },
       state: 'VERIFIED',
-      reason: 'outcome_succeeded',
+      reason: 'command_verification_passed',
+    },
+    {
+      name: 'completed succeeded whose verified head was superseded is PR_OPEN',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        state: 'completed',
+        outcome: 'succeeded',
+        outcomeReason: 'independent_verification_passed: head-1',
+        completedAt: 1,
+        prHeadSha: 'head-2',
+      }),
+      state: 'PR_OPEN',
+      reason: 'verified_head_superseded',
+    },
+    {
+      name: 'completed succeeded with pending checks on the new head is CI_PENDING',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        state: 'completed',
+        outcome: 'succeeded',
+        completedAt: 1,
+        prHeadSha: 'head-2',
+      }),
+      evidence: {
+        latestGitHubChecks: makeVerification({
+          headSha: 'head-2',
+          kind: 'github_checks',
+          status: 'unverified',
+          reason: 'checks_pending',
+        }),
+      },
+      state: 'CI_PENDING',
+      reason: 'github_checks_pending',
+    },
+    {
+      name: 'completed succeeded with a decisive failure on the new head is VERIFICATION_FAILED',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        state: 'completed',
+        outcome: 'succeeded',
+        completedAt: 1,
+        prHeadSha: 'head-2',
+      }),
+      evidence: {
+        latestCommand: makeVerification({
+          headSha: 'head-2',
+          kind: 'command',
+          status: 'failed',
+          specSha256: 'sha-x',
+        }),
+      },
+      state: 'VERIFICATION_FAILED',
+      reason: 'command_verification_failed',
+    },
+    {
+      name: 'completed succeeded with a recorded unverified run on the new head is VERIFYING',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        state: 'completed',
+        outcome: 'succeeded',
+        completedAt: 1,
+        prHeadSha: 'head-2',
+      }),
+      evidence: {
+        latestCommand: makeVerification({
+          headSha: 'head-2',
+          kind: 'command',
+          status: 'unverified',
+          reason: 'no_approved_verification_spec',
+        }),
+      },
+      state: 'VERIFYING',
+      reason: 'current_head_verification_pending',
+    },
+    {
+      name: 'verifying with a merged PR and no decisive evidence is NEEDS_HUMAN',
+      attempt: verifyingAttempt({ prState: 'merged' }),
+      state: 'NEEDS_HUMAN',
+      reason: 'pr_merged_before_verification',
+    },
+    {
+      name: 'verifying with a merged PR but a decisive passed row stays VERIFIED',
+      attempt: verifyingAttempt({ ...approvedSpec('sha-x'), prState: 'merged' }),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'passed',
+          specSha256: 'sha-x',
+        }),
+      },
+      state: 'VERIFIED',
+      reason: 'command_verification_passed',
+    },
+    {
+      name: 'failed row for an approved spec superseded by a new candidate is not decisive',
+      attempt: verifyingAttempt({
+        ...approvedSpec('sha-x'),
+        verificationCandidateSha256: 'sha-y',
+        verificationCandidateScript: 'echo changed',
+      }),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'failed',
+          specSha256: 'sha-x',
+        }),
+      },
+      state: 'VERIFYING',
+      reason: 'spec_pending_approval',
+    },
+    {
+      name: 'passed row for a non-approved spec is not VERIFIED',
+      attempt: verifyingAttempt(approvedSpec('sha-x')),
+      evidence: {
+        latestCommand: makeVerification({
+          kind: 'command',
+          status: 'passed',
+          specSha256: 'sha-other',
+        }),
+      },
+      state: 'VERIFYING',
+      reason: 'approved_spec_awaiting_run',
     },
     {
       name: 'completed escalated is NEEDS_HUMAN',
@@ -359,6 +490,13 @@ describe('deriveTaskState', () => {
     });
     expect(projection.state).toBe(state);
     expect(projection.reason).toBe(reason);
+  });
+
+  it('exposes the merged prState in raw when projecting NEEDS_HUMAN', () => {
+    const projection = deriveTaskState(verifyingAttempt({ prState: 'merged' }), noEvidence);
+    expect(projection.state).toBe('NEEDS_HUMAN');
+    expect(projection.reason).toBe('pr_merged_before_verification');
+    expect(projection.raw.prState).toBe('merged');
   });
 
   it('keeps raw evidence visible and separated from the normalized state', () => {
@@ -488,5 +626,67 @@ describe('projectTaskState (db-backed)', () => {
     projection = projectTaskState(refreshed, db);
     expect(projection.state).toBe('CI_PENDING');
     expect(projection.reason).toBe('github_checks_pending');
+  });
+
+  it('projects VERIFIED for a completed attempt and demotes it when the head moves', () => {
+    const db = getDb();
+    const task = upsertTask({ repoOwner: 'o', repoName: 'r', issueNumber: 15 });
+    const attempt = createAttempt(task.id, db);
+    markDispatching(attempt.id, db);
+    markSessionCreated(attempt.id, { devinSessionId: `sess-${String(attempt.id)}` }, db);
+    markRunning(attempt.id, db);
+    recordPullRequest(
+      attempt.id,
+      {
+        prUrl: 'https://github.com/o/r/pull/4',
+        prNumber: 4,
+        prState: 'open',
+        prHeadSha: 'head-a',
+      },
+      db
+    );
+    markVerifying(attempt.id, db);
+
+    const script = 'echo ok';
+    const sha = hashVerificationSpec('bash', script);
+    setVerificationCandidate(attempt.id, { shell: 'bash', script }, 'operator', db);
+    approveVerificationSpec(attempt.id, sha, 'operator', db);
+    recordVerification(
+      {
+        attemptId: attempt.id,
+        headSha: 'head-a',
+        kind: 'command',
+        status: 'passed',
+        specSha256: sha,
+      },
+      db
+    );
+    const completed = completeVerifiedAttempt(
+      attempt.id,
+      { headSha: 'head-a', specSha256: sha },
+      db
+    );
+    expect(completed.state).toBe('completed');
+
+    let projection = projectTaskState(completed, db);
+    expect(projection.state).toBe('VERIFIED');
+    expect(projection.reason).toBe('command_verification_passed');
+
+    // PR head moved after verification; the recorded pass belongs to head-a.
+    const moved = recordPullRequest(
+      attempt.id,
+      {
+        prUrl: 'https://github.com/o/r/pull/4',
+        prNumber: 4,
+        prState: 'open',
+        prHeadSha: 'head-b',
+      },
+      db
+    );
+    projection = projectTaskState(moved, db);
+    expect(projection.state).toBe('PR_OPEN');
+    expect(projection.reason).toBe('verified_head_superseded');
+    expect(projection.raw.outcome).toBe('succeeded');
+    expect(projection.raw.command).toBeNull();
   });
 });

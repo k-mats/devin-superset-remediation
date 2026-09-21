@@ -84,7 +84,10 @@ that answers "where is this task right now?" with a single normalized value
 `CANCELLED`) plus a machine-readable reason. It is computed on demand from
 the attempt row and the latest `command`/`github_checks` verification rows
 for the current PR head — no columns are stored and no new source of truth
-is introduced; evidence keyed to a superseded head SHA is ignored. The raw
+is introduced; evidence keyed to a superseded head SHA is ignored, so
+`VERIFIED` is a property of the current tracked head rather than the
+historical `succeeded` outcome (a head move demotes the projection back to
+`PR_OPEN`/`verified_head_superseded`). The raw
 provider facts (`devin_session_status`, `pr_state`, outcome reason,
 verification rows) are carried alongside the normalized value in
 `projection.raw` so the projection never replaces them. The session tracker
