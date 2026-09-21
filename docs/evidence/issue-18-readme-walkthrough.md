@@ -38,12 +38,12 @@ curl http://localhost:3000/api/report
 
 ### Startup without credentials
 
-| Step                                              | Result                                                                                                                                            |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cp .env.example .env` (unmodified)               | OK — all credential variables left empty                                                                                                          |
-| `docker compose up --build`                       | Image built in ≈29 s; container `devin-superset-remediation-app-1` created                                                                        |
-| Time from `up` to `docker compose ps` = `healthy` | ≈114 s (build + start + 10 s healthcheck `start_period`)                                                                                          |
-| Startup log                                       | Migrations applied, `Server listening at http://127.0.0.1:3000` / `http://172.18.0.2:3000`; three `level:40` (warn) lines, one per skipped poller |
+| Step                                              | Result                                                                                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `cp .env.example .env` (unmodified)               | OK — all credential variables left empty                                                                                      |
+| `docker compose up --build`                       | Image built in ≈29 s; container `devin-superset-remediation-app-1` created                                                    |
+| Time from `up` to `docker compose ps` = `healthy` | ≈114 s (build + start + 10 s healthcheck `start_period`)                                                                      |
+| Startup log                                       | `Server listening at http://127.0.0.1:3000` / `http://172.18.0.2:3000`; three `level:40` (warn) lines, one per skipped poller |
 
 The three warnings, exactly as logged (hostnames/timestamps elided):
 
