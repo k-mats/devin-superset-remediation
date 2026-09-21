@@ -62,7 +62,7 @@ and open `http://localhost:3000/dashboard` for the HTML dashboard.
 ### Environment variables
 
 `.env` is loaded via `env_file`; the compose `environment:` block pins
-`DATABASE_PATH=/app/data/orchestrator.db`, `HOST=0.0.0.0`, `PORT=3000`, and
+`NODE_ENV=production`, `DATABASE_PATH=/app/data/orchestrator.db`, `HOST=0.0.0.0`, `PORT=3000`, and
 `VERIFICATION_WORKSPACE_ROOT=/app/data/verification` on top. With all
 credentials unset the application still starts and serves health, readiness,
 reporting, and the dashboard — only GitHub intake, Devin dispatch, and
