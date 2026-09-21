@@ -18,6 +18,12 @@ general `/api/report` and `/dashboard` surfaces continue to exclude candidate
 scripts and raw `evidenceSummary`; only the dedicated operator page renders
 the exact candidate and approved script.
 
+Verification execution is serialized in-process per repository workspace. The
+tracker and browser rerun share the same lock, and a waiter re-reads attempt
+state after acquiring it. The remaining limitation is cross-process:
+`demo:verification` / CLI runs in a separate process against a live service
+are not covered by the in-process lock.
+
 Tests run:
 
 ```text
@@ -26,8 +32,8 @@ Test Files  4 passed (4)
 Tests       29 passed (29)
 
 Full Vitest suite:
-Test Files  28 passed (28)
-Tests       426 passed (426)
+Test Files  30 passed (30)
+Tests       433 passed (433)
 ```
 
 `pnpm check`:
@@ -36,12 +42,15 @@ Tests       426 passed (426)
 format:check passed
 lint passed
 type-check passed
-test passed — 28 files, 426 tests
+test passed — 30 files, 433 tests
 build passed
 ```
 
 Reporting-boundary regression coverage verifies that script and raw-output
 sentinels remain absent from the general report/dashboard while the operator
-page can show the script sentinel.
+page can show the script sentinel. Workspace-lock unit coverage verifies
+same-key serialization, different-key interleaving, and rejection release;
+verification-concurrency coverage verifies serialized execution, the no-op
+lock interleaving, and stale waiter skipping.
 
 Screenshot: (added by lead)

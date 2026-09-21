@@ -281,10 +281,11 @@ credentials; the real-run stages were recorded separately as linked above.
 stop` gives 15 s; a running checkout/setup/command (timeouts up to
   5 / 30 / 15 min) may be killed. Recorded state and workspaces persist on
   the volume; a mid-run verification is not reconciled across restarts.
-- **Browser reruns can overlap tracker verification.** The explicit browser
-  rerun is synchronous and may race a tracking poll on the same attempt and
-  workspace; completion is transaction-guarded, but checkout/setup work can
-  collide.
+- **Verification execution is serialized in-process per repository workspace.**
+  Tracker verification and browser reruns share the lock, and a waiter re-reads
+  attempt state after acquiring it. The remaining limitation is cross-process:
+  `demo:verification` / CLI runs in a separate process against a live service
+  are not covered by the in-process lock.
 - **Polling by default.** Without the optional webhook, intake latency is
   bounded by `GITHUB_POLL_INTERVAL_MS`; dispatch and tracking latency by the
   other interval settings (60 s each by default). The webhook only

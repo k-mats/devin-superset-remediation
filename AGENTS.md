@@ -44,6 +44,7 @@ devin-superset-remediation/
 │   │   ├── repo-setup.ts     # Repository setup adapters (superset uv venv, noop)
 │   │   ├── github-checks.ts  # Check-run/combined-status evaluation
 │   │   ├── verify-remediation.ts # Verification orchestration per poll
+│   │   ├── workspace-lock.ts # In-process per-workspace verification mutex
 │   │   └── rerun.ts           # Shared explicit verification rerun (Issue #64)
 │   └── routes/               # Fastify routes
 │       ├── health.ts         # Health check endpoint

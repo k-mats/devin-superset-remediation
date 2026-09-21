@@ -46,6 +46,11 @@ For local development outside Docker, `.env.example` sets
 `NODE_ENV=development`, `PORT=3000`, `DATABASE_PATH=./database.db`,
 `LOG_LEVEL=info`.
 
+The default Compose configuration publishes only on loopback because the
+operator routes can execute approved shell scripts; deployments that
+intentionally expose webhook/operator traffic should use their own
+network/reverse-proxy configuration.
+
 ### Persistence
 
 The SQLite database lives on the named volume `orchestrator-data` mounted at
@@ -73,7 +78,7 @@ for local development, so it must be overridden explicitly here):
 
 ```bash
 docker build -t devin-superset-remediation .
-docker run --rm -p 3000:3000 --env-file .env \
+docker run --rm -p 127.0.0.1:3000:3000 --env-file .env \
   -e NODE_ENV=production -e HOST=0.0.0.0 \
   -e DATABASE_PATH=/app/data/orchestrator.db \
   -e VERIFICATION_WORKSPACE_ROOT=/app/data/verification \
@@ -103,11 +108,11 @@ verification_disabled` when `VERIFICATION_ENABLED=false`, or `503
 github_unavailable` when `GITHUB_TOKEN` is not configured. Review, propose, and
 approve remain available in both cases.
 
-The synchronous rerun has the pre-existing tracker-overlap limitation: a
-tracking poll can run verification on the same attempt while the browser rerun
-is checking out or executing. Completion is transaction-guarded, but two
-checkouts can collide in the shared workspace. There is no in-process rerun
-lock or job.
+Verification execution is serialized in-process per repository workspace:
+tracker verification and browser reruns share the lock, and a waiter re-reads
+attempt state after acquiring it. The remaining limitation is cross-process:
+`demo:verification` and CLI runs in a separate process against a live service
+are not covered by the in-process lock.
 
 ### Trust boundary of in-container verification
 

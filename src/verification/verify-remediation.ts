@@ -19,6 +19,7 @@ import { evaluateGitHubChecks, pullRequestChecksUrl } from './github-checks.js';
 import { resolveSetupAdapter, SetupError } from './repo-setup.js';
 import { baseEnv, runVerificationCommand, type VerificationWorkspace } from './runner.js';
 import { hashVerificationSpec, parseVerificationSpec, type VerificationSpec } from './spec.js';
+import { defaultWorkspaceLock, type WorkspaceLock } from './workspace-lock.js';
 
 export type RemediationVerificationDecision =
   | 'verification_passed'
@@ -41,6 +42,7 @@ export interface VerifyRemediationOptions {
   runCommand?: typeof runVerificationCommand;
   checkout?: typeof checkoutExactSha;
   resolveAdapter?: typeof resolveSetupAdapter;
+  workspaceLock?: WorkspaceLock;
 }
 
 function logRow(logger: VerifyRemediationOptions['logger'], row: Verification): void {
@@ -283,147 +285,175 @@ export async function verifyRemediationOnce(
     `${task.repoOwner.toLowerCase()}__${task.repoName.toLowerCase()}`
   );
   const cloneUrl = `https://github.com/${task.repoOwner}/${task.repoName}.git`;
+  const lock = opts.workspaceLock ?? defaultWorkspaceLock;
 
-  try {
-    await checkout({
-      cloneUrl,
-      headSha,
-      workspaceDir,
-      timeoutMs: opts.checkoutTimeoutMs,
-      logger: opts.logger,
-    });
-  } catch (error: unknown) {
-    logRow(
-      opts.logger,
-      recordVerification(
-        {
-          attemptId: attempt.id,
-          headSha,
-          kind: 'command',
-          status: 'error',
-          reason: 'checkout_failed',
-          evidenceSummary: boundSummary(
-            error instanceof Error ? error.message : String(error),
-            opts.maxOutputBytes
-          ),
-        },
-        db
-      )
-    );
-    return 'verification_error';
-  }
+  return lock.run(workspaceDir, async () => {
+    const fresh = getAttempt(attempt.id, db);
+    if (
+      !fresh ||
+      fresh.state !== 'verifying' ||
+      fresh.prHeadSha !== headSha ||
+      fresh.verificationApprovedSha256 !== approved.sha256 ||
+      fresh.verificationCandidateSha256 !== approved.sha256
+    ) {
+      opts.logger.info(
+        { attempt_id: attempt.id, head_sha: headSha },
+        'Attempt state changed while waiting for the workspace lock; skipping'
+      );
+      return 'verification_skipped';
+    }
+    if (!opts.rerun) {
+      const latest = findLatestVerification(attempt.id, headSha, 'command', db);
+      if (
+        latest &&
+        (latest.status === 'passed' || latest.status === 'failed') &&
+        latest.specSha256 === approved.sha256
+      ) {
+        return decisionFor(latest.status);
+      }
+    }
 
-  const adapter = resolveAdapter(task);
-  const env = { ...baseEnv() };
-  const setupStartedAt = Date.now();
-  try {
-    Object.assign(
-      env,
-      await adapter.setup(
-        { cwd: workspaceDir },
-        { timeoutMs: opts.setupTimeoutMs, logger: opts.logger }
-      )
-    );
-  } catch (error: unknown) {
-    logRow(
-      opts.logger,
-      recordVerification(
-        {
-          attemptId: attempt.id,
-          headSha,
-          kind: 'command',
-          status: 'error',
-          reason: error instanceof SetupError ? error.reason : 'setup_failed',
-          evidenceSummary: boundSummary(
-            `adapter=${adapter.name}\n${error instanceof Error ? error.message : String(error)}`,
-            opts.maxOutputBytes
-          ),
-        },
-        db
-      )
-    );
-    return 'verification_error';
-  }
-  const setupDurationMs = Date.now() - setupStartedAt;
-
-  const workspace: VerificationWorkspace = { cwd: workspaceDir, env };
-  const result = await runCommand(approved, workspace, {
-    timeoutMs: opts.commandTimeoutMs,
-    maxOutputBytes: opts.maxOutputBytes,
-  });
-
-  let headStillCurrent = result.status === 'passed';
-  if (result.status === 'passed') {
     try {
-      const pr = await opts.github.getPullRequest(task.repoOwner, task.repoName, prNumber);
-      if (pr.head.sha !== headSha) {
-        headStillCurrent = false;
-        recordPullRequest(
-          attempt.id,
+      await checkout({
+        cloneUrl,
+        headSha,
+        workspaceDir,
+        timeoutMs: opts.checkoutTimeoutMs,
+        logger: opts.logger,
+      });
+    } catch (error: unknown) {
+      logRow(
+        opts.logger,
+        recordVerification(
           {
-            prUrl: pr.html_url,
-            prNumber: pr.number,
-            prState: derivePrState(pr),
-            prHeadSha: pr.head.sha,
+            attemptId: attempt.id,
+            headSha,
+            kind: 'command',
+            status: 'error',
+            reason: 'checkout_failed',
+            evidenceSummary: boundSummary(
+              error instanceof Error ? error.message : String(error),
+              opts.maxOutputBytes
+            ),
           },
           db
-        );
+        )
+      );
+      return 'verification_error';
+    }
+
+    const adapter = resolveAdapter(task);
+    const env = { ...baseEnv() };
+    const setupStartedAt = Date.now();
+    try {
+      Object.assign(
+        env,
+        await adapter.setup(
+          { cwd: workspaceDir },
+          { timeoutMs: opts.setupTimeoutMs, logger: opts.logger }
+        )
+      );
+    } catch (error: unknown) {
+      logRow(
+        opts.logger,
+        recordVerification(
+          {
+            attemptId: attempt.id,
+            headSha,
+            kind: 'command',
+            status: 'error',
+            reason: error instanceof SetupError ? error.reason : 'setup_failed',
+            evidenceSummary: boundSummary(
+              `adapter=${adapter.name}\n${error instanceof Error ? error.message : String(error)}`,
+              opts.maxOutputBytes
+            ),
+          },
+          db
+        )
+      );
+      return 'verification_error';
+    }
+    const setupDurationMs = Date.now() - setupStartedAt;
+
+    const workspace: VerificationWorkspace = { cwd: workspaceDir, env };
+    const result = await runCommand(approved, workspace, {
+      timeoutMs: opts.commandTimeoutMs,
+      maxOutputBytes: opts.maxOutputBytes,
+    });
+
+    let headStillCurrent = result.status === 'passed';
+    if (result.status === 'passed') {
+      try {
+        const pr = await opts.github.getPullRequest(task.repoOwner, task.repoName, prNumber);
+        if (pr.head.sha !== headSha) {
+          headStillCurrent = false;
+          recordPullRequest(
+            attempt.id,
+            {
+              prUrl: pr.html_url,
+              prNumber: pr.number,
+              prState: derivePrState(pr),
+              prHeadSha: pr.head.sha,
+            },
+            db
+          );
+          opts.logger.warn(
+            { attempt_id: attempt.id, verified_head_sha: headSha, current_head_sha: pr.head.sha },
+            'Pull request head changed during verification; deferring completion to the next poll'
+          );
+        }
+      } catch (error: unknown) {
+        headStillCurrent = false;
         opts.logger.warn(
-          { attempt_id: attempt.id, verified_head_sha: headSha, current_head_sha: pr.head.sha },
-          'Pull request head changed during verification; deferring completion to the next poll'
+          { err: error, attempt_id: attempt.id, head_sha: headSha },
+          'Pull request re-check failed after a passing verification; deferring completion to the next poll'
         );
       }
-    } catch (error: unknown) {
-      headStillCurrent = false;
-      opts.logger.warn(
-        { err: error, attempt_id: attempt.id, head_sha: headSha },
-        'Pull request re-check failed after a passing verification; deferring completion to the next poll'
-      );
     }
-  }
 
-  const summary = boundSummary(
-    `$ ${approved.script}\nadapter=${adapter.name} setup_ms=${String(setupDurationMs)}\nexit_code=${String(result.exitCode)}\n${result.output}`,
-    opts.maxOutputBytes
-  );
-  const completeHead = headStillCurrent;
-  const row = db.transaction((tx) => {
-    const recorded = recordVerification(
-      {
-        attemptId: attempt.id,
-        headSha,
-        kind: 'command',
-        status: result.status,
-        reason: result.reason ?? null,
-        specShell: approved.shell,
-        specScript: approved.script,
-        specSha256: approved.sha256,
-        exitCode: result.exitCode,
-        evidenceSummary: summary,
-        startedAt: result.startedAt,
-        finishedAt: result.finishedAt,
-      },
-      tx
+    const summary = boundSummary(
+      `$ ${approved.script}\nadapter=${adapter.name} setup_ms=${String(setupDurationMs)}\nexit_code=${String(result.exitCode)}\n${result.output}`,
+      opts.maxOutputBytes
     );
-    const fresh = getAttempt(attempt.id, tx);
-    if (
-      result.status === 'passed' &&
-      completeHead &&
-      fresh?.state === 'verifying' &&
-      fresh.prHeadSha === headSha &&
-      fresh.verificationCandidateSha256 === approved.sha256 &&
-      fresh.verificationApprovedSha256 === approved.sha256
-    ) {
-      completeVerifiedAttempt(attempt.id, { headSha, specSha256: approved.sha256 }, tx);
-    } else if (result.status === 'passed' && completeHead) {
-      opts.logger.warn(
-        { attempt_id: attempt.id, head_sha: headSha, spec_sha256: approved.sha256 },
-        'Verification spec superseded during run; not completing'
+    const completeHead = headStillCurrent;
+    const row = db.transaction((tx) => {
+      const recorded = recordVerification(
+        {
+          attemptId: attempt.id,
+          headSha,
+          kind: 'command',
+          status: result.status,
+          reason: result.reason ?? null,
+          specShell: approved.shell,
+          specScript: approved.script,
+          specSha256: approved.sha256,
+          exitCode: result.exitCode,
+          evidenceSummary: summary,
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+        },
+        tx
       );
-    }
-    return recorded;
-  });
-  logRow(opts.logger, row);
+      const fresh = getAttempt(attempt.id, tx);
+      if (
+        result.status === 'passed' &&
+        completeHead &&
+        fresh?.state === 'verifying' &&
+        fresh.prHeadSha === headSha &&
+        fresh.verificationCandidateSha256 === approved.sha256 &&
+        fresh.verificationApprovedSha256 === approved.sha256
+      ) {
+        completeVerifiedAttempt(attempt.id, { headSha, specSha256: approved.sha256 }, tx);
+      } else if (result.status === 'passed' && completeHead) {
+        opts.logger.warn(
+          { attempt_id: attempt.id, head_sha: headSha, spec_sha256: approved.sha256 },
+          'Verification spec superseded during run; not completing'
+        );
+      }
+      return recorded;
+    });
+    logRow(opts.logger, row);
 
-  return decisionFor(result.status);
+    return decisionFor(result.status);
+  });
 }
