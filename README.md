@@ -104,11 +104,29 @@ docker run --rm -p 3000:3000 --env-file .env \
   -v orchestrator-data:/app/data devin-superset-remediation
 ```
 
+### Operator commands inside the container
+
+The verification operator CLIs are compiled into the image under `dist/cli/`
+and run with plain `node` — no `tsx` or dev dependencies required:
+
+```bash
+docker compose exec app node dist/cli/verification-propose.js --attempt <id> --command "<cmd>"
+docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>
+docker compose exec app node dist/cli/verification-show.js --attempt <id>
+```
+
 ### Graceful shutdown
 
 `docker compose stop` (or `down`) sends SIGTERM; the service closes the
 HTTP server and database cleanly before exiting. `stop_grace_period: 15s`
-gives in-flight polls time to finish.
+gives in-flight polls time to finish. Note the demonstrated graceful
+shutdown had **no long-running verification in flight**: an in-flight
+verification (checkout / setup / command, with timeouts up to 5 / 30 / 15
+minutes) may be forcibly killed when `stop_grace_period` expires.
+Verification workspaces and results are persisted on the
+`orchestrator-data` volume, but graceful cancellation and restart
+reconciliation of an in-flight verification are not implemented yet
+(follow-up).
 
 See [docs/evidence/issue-17-docker.md](docs/evidence/issue-17-docker.md) for a
 recorded clean-checkout run.
@@ -145,6 +163,10 @@ operator runs `pnpm verification:approve --attempt <id> --spec-hash <sha256>`,
 and only the approved spec ever executes
 (inspect with `pnpm verification:show --attempt <id>`, propose a spec with
 `pnpm verification:propose --attempt <id> --command "<cmd>"`).
+The `pnpm verification:*` commands are thin wrappers around `src/cli/*`;
+the compiled equivalents live in `dist/cli/` and can be run with `node`
+inside the production container (see
+"Operator commands inside the container").
 Removing or breaking the `## Verification` section clears an issue-derived
 candidate; operator candidates are never cleared or overwritten by issue
 edits.
@@ -162,6 +184,13 @@ edits.
   with `GIT_TERMINAL_PROMPT=0`; private repositories are out of scope and
   surface as a visible `error/checkout_failed` verification row, never as
   success.
+- **No graceful cancellation of in-flight verification.** Under Docker the
+  demonstrated graceful SIGTERM shutdown covered an idle service; an
+  in-flight verification (checkout / setup / command, timeouts up to
+  5 / 30 / 15 minutes) may be forcibly killed when `stop_grace_period`
+  (15s) expires. Workspaces and recorded state persist on the volume, but
+  cancellation and restart reconciliation of a mid-run verification are
+  not implemented yet (follow-up).
 
 ### Installation
 
