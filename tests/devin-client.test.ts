@@ -45,6 +45,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     verificationCheckoutTimeoutMs: 300_000,
     verificationMaxOutputBytes: 16_384,
     devinTrackingIntervalMs: 0,
+    devinReconcileIntervalMs: 0,
+    devinDispatchGraceMs: 300_000,
     devinSessionStaleWarnMs: 21_600_000,
     devinMaxAcuPerSession: 5,
     ...overrides,
@@ -132,6 +134,51 @@ describe('DevinClient', () => {
     expect(init?.method).toBe('GET');
     expect(session.session_id).toBe('devin-abc');
     expect(session.origin).toBe('api');
+  });
+
+  it('listSessions GETs with repeated tags= params and parses the paginated response', async () => {
+    const fetchFn = mockFetch({
+      items: [sessionJson],
+      end_cursor: 'cursor-1',
+      has_next_page: true,
+      total: 1,
+    });
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    const page = await client.listSessions({
+      tags: ['devin-superset-remediation', 'correlation:abc-123'],
+      first: 200,
+      after: 'cursor-0',
+      created_after: 1_700_000_000,
+    });
+
+    const [url, init] = fetchFn.mock.calls[0] ?? [];
+    expect(init?.method).toBe('GET');
+    expect(url).toBe(
+      'https://api.devin.ai/v3/organizations/org_123/sessions' +
+        '?tags=devin-superset-remediation&tags=correlation%3Aabc-123' +
+        '&first=200&after=cursor-0&created_after=1700000000'
+    );
+    expect(url).not.toContain('is_archived');
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.session_id).toBe('devin-abc');
+    expect(page.end_cursor).toBe('cursor-1');
+    expect(page.has_next_page).toBe(true);
+    expect(page.total).toBe(1);
+  });
+
+  it('listSessions omits undefined params and defaults has_next_page', async () => {
+    const fetchFn = mockFetch({ items: [] });
+    const client = new DevinClient({ apiKey: 'test-key', orgId: 'org_123', fetchFn });
+
+    const page = await client.listSessions({ tags: ['correlation:abc-123'] });
+
+    const [url] = fetchFn.mock.calls[0] ?? [];
+    expect(url).toBe(
+      'https://api.devin.ai/v3/organizations/org_123/sessions?tags=correlation%3Aabc-123'
+    );
+    expect(page.items).toEqual([]);
+    expect(page.has_next_page).toBe(false);
   });
 
   it('rejects with DevinApiError on non-2xx responses', async () => {

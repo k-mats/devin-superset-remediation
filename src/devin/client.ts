@@ -4,6 +4,8 @@ import type { Config } from '../config.js';
 const DEFAULT_BASE_URL = 'https://api.devin.ai/v3';
 const MAX_ERROR_BODY_LENGTH = 500;
 
+export const DEVIN_REQUEST_TIMEOUT_MS = 30_000;
+
 // Enums per the v3 OpenAPI spec (SessionResponse).
 export const SESSION_STATUSES = [
   'new',
@@ -70,6 +72,24 @@ export const sessionResponseSchema = z
 
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 
+export const paginatedSessionsResponseSchema = z
+  .object({
+    items: z.array(sessionResponseSchema),
+    end_cursor: z.string().nullish(),
+    has_next_page: z.boolean().default(false),
+    total: z.number().nullish(),
+  })
+  .loose();
+
+export type PaginatedSessionsResponse = z.infer<typeof paginatedSessionsResponseSchema>;
+
+export interface ListSessionsParams {
+  tags?: string[];
+  first?: number;
+  after?: string;
+  created_after?: number;
+}
+
 export interface CreateSessionRequest {
   prompt: string;
   title?: string;
@@ -112,11 +132,18 @@ export class DevinClient {
     this.orgId = opts.orgId;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.fetchFn = opts.fetchFn ?? globalThis.fetch;
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEVIN_REQUEST_TIMEOUT_MS;
   }
 
-  private async request(method: string, path: string, body?: unknown): Promise<SessionResponse> {
-    const response = await this.fetchFn(`${this.baseUrl}${path}`, {
+  private async request<T>(
+    method: string,
+    path: string,
+    schema: z.ZodType<T>,
+    body?: unknown,
+    query?: URLSearchParams
+  ): Promise<T> {
+    const qs = query === undefined || query.size === 0 ? '' : `?${query.toString()}`;
+    const response = await this.fetchFn(`${this.baseUrl}${path}${qs}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -132,7 +159,7 @@ export class DevinClient {
     }
 
     const json: unknown = await response.json();
-    const parsed = sessionResponseSchema.safeParse(json);
+    const parsed = schema.safeParse(json);
     if (!parsed.success) {
       throw new Error(
         `Devin API ${method} ${path} returned an unexpected response: ${parsed.error.message}`
@@ -142,11 +169,43 @@ export class DevinClient {
   }
 
   createSession(req: CreateSessionRequest): Promise<SessionResponse> {
-    return this.request('POST', `/organizations/${this.orgId}/sessions`, req);
+    return this.request(
+      'POST',
+      `/organizations/${this.orgId}/sessions`,
+      sessionResponseSchema,
+      req
+    );
   }
 
   getSession(sessionId: string): Promise<SessionResponse> {
-    return this.request('GET', `/organizations/${this.orgId}/sessions/${sessionId}`);
+    return this.request(
+      'GET',
+      `/organizations/${this.orgId}/sessions/${sessionId}`,
+      sessionResponseSchema
+    );
+  }
+
+  listSessions(params: ListSessionsParams = {}): Promise<PaginatedSessionsResponse> {
+    const query = new URLSearchParams();
+    // Repeated tags= params are ORed by the API; matching is exact and
+    // case-sensitive, so callers must verify returned tags client-side.
+    for (const tag of params.tags ?? []) {
+      query.append('tags', tag);
+    }
+    if (params.first !== undefined) query.set('first', String(params.first));
+    if (params.after !== undefined) query.set('after', params.after);
+    if (params.created_after !== undefined) {
+      query.set('created_after', String(params.created_after));
+    }
+    // is_archived is intentionally not sent: archived sessions are still
+    // eligible for reconciliation adoption.
+    return this.request(
+      'GET',
+      `/organizations/${this.orgId}/sessions`,
+      paginatedSessionsResponseSchema,
+      undefined,
+      query
+    );
   }
 }
 

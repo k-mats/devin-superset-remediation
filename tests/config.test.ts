@@ -21,6 +21,7 @@ describe('configuration', () => {
   describe('Devin dispatch configuration', () => {
     const originalDispatchInterval = process.env['DEVIN_DISPATCH_INTERVAL_MS'];
     const originalMaxAcu = process.env['DEVIN_MAX_ACU_PER_SESSION'];
+    const originalDispatchGrace = process.env['DEVIN_DISPATCH_GRACE_MS'];
 
     afterEach(() => {
       if (originalDispatchInterval === undefined) {
@@ -32,6 +33,11 @@ describe('configuration', () => {
         delete process.env['DEVIN_MAX_ACU_PER_SESSION'];
       } else {
         process.env['DEVIN_MAX_ACU_PER_SESSION'] = originalMaxAcu;
+      }
+      if (originalDispatchGrace === undefined) {
+        delete process.env['DEVIN_DISPATCH_GRACE_MS'];
+      } else {
+        process.env['DEVIN_DISPATCH_GRACE_MS'] = originalDispatchGrace;
       }
     });
 
@@ -63,6 +69,17 @@ describe('configuration', () => {
       expect(() => loadConfig()).toThrow();
       process.env['DEVIN_MAX_ACU_PER_SESSION'] = 'not-a-number';
       expect(() => loadConfig()).toThrow();
+    });
+
+    it('requires the dispatch grace to exceed the Devin request timeout', () => {
+      process.env['DEVIN_DISPATCH_GRACE_MS'] = '0';
+      expect(() => loadConfig()).toThrow();
+      process.env['DEVIN_DISPATCH_GRACE_MS'] = '30000';
+      expect(() => loadConfig()).toThrow();
+      process.env['DEVIN_DISPATCH_GRACE_MS'] = '30001';
+      expect(loadConfig().devinDispatchGraceMs).toBe(30_001);
+      delete process.env['DEVIN_DISPATCH_GRACE_MS'];
+      expect(loadConfig().devinDispatchGraceMs).toBe(300_000);
     });
   });
 

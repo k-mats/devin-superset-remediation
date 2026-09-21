@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEVIN_REQUEST_TIMEOUT_MS } from './devin/client.js';
 
 const configSchema = z.object({
   port: z.coerce.number().default(3000),
@@ -17,6 +18,15 @@ const configSchema = z.object({
   devinApiUrl: z.url().default('https://api.devin.ai/v3'),
   devinDispatchIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
   devinTrackingIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
+  devinReconcileIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
+  // Must exceed the create-session request timeout so a timed-out dispatch is
+  // never reconciled while its request may still be in flight.
+  devinDispatchGraceMs: z.coerce
+    .number()
+    .int()
+    .gt(DEVIN_REQUEST_TIMEOUT_MS)
+    .max(2_147_483_647)
+    .default(300_000),
   devinSessionStaleWarnMs: z.coerce.number().int().min(0).max(2_147_483_647).default(21_600_000),
   devinMaxAcuPerSession: z.coerce.number().positive().default(5),
   verificationEnabled: z
@@ -55,6 +65,8 @@ export function loadConfig(): Config {
     devinApiUrl: envValue('DEVIN_API_URL'),
     devinDispatchIntervalMs: envValue('DEVIN_DISPATCH_INTERVAL_MS'),
     devinTrackingIntervalMs: envValue('DEVIN_TRACKING_INTERVAL_MS'),
+    devinReconcileIntervalMs: envValue('DEVIN_RECONCILE_INTERVAL_MS'),
+    devinDispatchGraceMs: envValue('DEVIN_DISPATCH_GRACE_MS'),
     devinSessionStaleWarnMs: envValue('DEVIN_SESSION_STALE_WARN_MS'),
     devinMaxAcuPerSession: envValue('DEVIN_MAX_ACU_PER_SESSION'),
     verificationEnabled: envValue('VERIFICATION_ENABLED'),
