@@ -144,6 +144,7 @@ export interface LedgerAttemptEvidence {
   verification: {
     command: LedgerVerificationEvidence | null;
     githubChecks: LedgerVerificationEvidence | null;
+    prior: LedgerVerificationEvidence[];
     stale: LedgerVerificationEvidence[];
   };
   approval: {
@@ -292,6 +293,20 @@ function toLedgerAttempt(
     attempt.prHeadSha === null
       ? undefined
       : findLatestVerification(attempt.id, attempt.prHeadSha, 'github_checks', db);
+  const currentVerificationIds = new Set(
+    [currentCommand?.id, currentGitHubChecks?.id].filter(
+      (verificationId): verificationId is number => verificationId !== undefined
+    )
+  );
+  const prior = verifications
+    .filter(
+      (verification) =>
+        attempt.prHeadSha !== null &&
+        verification.headSha === attempt.prHeadSha &&
+        !currentVerificationIds.has(verification.id)
+    )
+    .sort((a, b) => b.createdAt - a.createdAt || b.id - a.id)
+    .map(toLedgerVerification);
   const stale = verifications
     .filter((verification) => verification.headSha !== attempt.prHeadSha)
     .sort((a, b) => b.createdAt - a.createdAt || b.id - a.id)
@@ -318,6 +333,7 @@ function toLedgerAttempt(
     verification: {
       command: currentCommand ? toLedgerVerification(currentCommand) : null,
       githubChecks: currentGitHubChecks ? toLedgerVerification(currentGitHubChecks) : null,
+      prior,
       stale,
     },
     approval: {

@@ -59,26 +59,28 @@ Earlier `demo:verification` passes in the same database recorded
 `uv_not_found`, `install_failed` (missing `pkg-config` / MySQL headers) and a
 failed run of a wrongly-pathed command that was proposed and approved by
 mistake (`.../test_query_dataset_reversed_time_range` without the
-`test_query_dataset.py::` prefix). They are retained as verification history for
-head `f22d3d3…`; the ledger shows only the latest `command` row for the current
-head, so they do not affect the displayed evidence or the normalized state.
+`test_query_dataset.py::` prefix). They are retained as prior verification
+history for head `f22d3d3…`; the ledger selects only the latest `command` and
+`github_checks` rows as current evidence while exposing the other same-head
+rows as prior history, so they do not affect the displayed current evidence or
+the normalized state.
 
 ### Ledger row (`/api/report` → `ledger[0]`, structured facts only)
 
-| Field                               | Value                                                                                                                                                    |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Issue                               | `k-mats/superset#13`                                                                                                                                     |
-| Normalized state / reason           | `VERIFIED` / `command_verification_passed`                                                                                                               |
-| Attempt                             | 1 of 1 (`attemptCount: 1`, history has one entry)                                                                                                        |
-| Devin session                       | `5957ce490e56465b930e0349ace6db68`, status `suspended` (`inactivity`)                                                                                    |
-| ACU                                 | `0` — the persisted value returned by the Devin API (`acus_consumed: 0.0`) for this suspended session; shown as observed, not as unknown                 |
-| PR                                  | #14, `open`, head `f22d3d3f55b19803542416f4150a62cbc7607fc0`                                                                                             |
-| Command verification (current head) | `passed`, exit `0`, spec `590eadd10bdffac99af35dcba67a28c4330b33bca2fda534b812b58711dc13df`, started 2026-09-21T19:11:15Z, finished 2026-09-21T19:11:29Z |
-| GitHub Checks (current head)        | `unverified` / `no_checks` (PR #14 head has zero check-runs and zero statuses), evidence URL https://github.com/k-mats/superset/pull/14/checks           |
-| Stale verifications                 | none (no earlier PR head was tracked)                                                                                                                    |
-| Approval                            | `approved`, spec `590eadd1…`, by `operator`, at 2026-09-21T19:11:09Z; candidate source `operator`                                                        |
-| Outcome (orchestrator)              | `completed` / `succeeded` / `independent_verification_passed: f22d3d3…`                                                                                  |
-| Agent-reported (separate)           | outcome `remediated`, PR URL #14, `needsHumanReason: null`                                                                                               |
+| Field                               | Value                                                                                                                                                                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue                               | `k-mats/superset#13`                                                                                                                                                                                                                           |
+| Normalized state / reason           | `VERIFIED` / `command_verification_passed`                                                                                                                                                                                                     |
+| Attempt                             | 1 of 1 (`attemptCount: 1`, history has one entry)                                                                                                                                                                                              |
+| Devin session                       | `5957ce490e56465b930e0349ace6db68`, status `suspended` (`inactivity`)                                                                                                                                                                          |
+| ACU                                 | `0` — the persisted value returned by the Devin API (`acus_consumed: 0.0`) for this suspended session; shown as observed, not as unknown                                                                                                       |
+| PR                                  | #14, `open`, head `f22d3d3f55b19803542416f4150a62cbc7607fc0`                                                                                                                                                                                   |
+| Command verification (current head) | `passed`, exit `0`, spec `590eadd10bdffac99af35dcba67a28c4330b33bca2fda534b812b58711dc13df`, started 2026-09-21T19:11:15Z, finished 2026-09-21T19:11:29Z                                                                                       |
+| GitHub Checks (current head)        | `unverified` / `no_checks` (PR #14 head has zero check-runs and zero statuses), evidence URL https://github.com/k-mats/superset/pull/14/checks                                                                                                 |
+| Prior verifications (same head)     | `command` `failed` exit `4` (`reason: null`), `command` `error` / `install_failed`, `command` `error` / `uv_not_found`, `command` `unverified` / `verification_spec_pending_approval` (retained as history, not current evidence); stale: none |
+| Approval                            | `approved`, spec `590eadd1…`, by `operator`, at 2026-09-21T19:11:09Z; candidate source `operator`                                                                                                                                              |
+| Outcome (orchestrator)              | `completed` / `succeeded` / `independent_verification_passed: f22d3d3…`                                                                                                                                                                        |
+| Agent-reported (separate)           | outcome `remediated`, PR URL #14, `needsHumanReason: null`                                                                                                                                                                                     |
 
 The `VERIFIED` state is derived by Issue #14's `projectTaskState()` from the
 passing command verification on the current head; the open PR link and the
@@ -101,7 +103,8 @@ status / reason / head / spec hash / exit code / evidence URL / timestamps.
 - `FAILED`, `NEEDS_HUMAN` (with `needsHumanReason`), `NO_ACTION` and
   `CANCELLED` rows retained with their reasons;
 - verification of a previous PR head listed as `stale` (with kind) and not used
-  as current-head evidence;
+  as current-head evidence; same-head command/check rows listed as `prior` and
+  not used as current-head evidence;
 - `acusConsumed: null` rendered as `—`, never `0`;
 - `/api/report` and `/dashboard` built from the same `Report` model, with raw
   scripts and command output absent from both.

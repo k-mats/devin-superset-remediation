@@ -470,9 +470,93 @@ describe('report model', () => {
       expect(renderDashboard(buildReport({ now: Date.now() }))).toContain('stale command');
     });
 
+    it('keeps same-head verification history separate from current evidence', () => {
+      const task = makeTask(31);
+      const attempt = attemptFor(task.id);
+      const headSha = 'same-head';
+      recordPullRequest(attempt.id, {
+        prUrl: `https://github.com/owner/repo/pull/${String(attempt.id)}`,
+        prNumber: attempt.id,
+        prState: 'open',
+        prHeadSha: headSha,
+      });
+      const script = 'echo ok';
+      const specSha256 = hashVerificationSpec('sh', script);
+      setVerificationCandidate(attempt.id, { shell: 'sh', script }, 'operator');
+      approveVerificationSpec(attempt.id, specSha256, 'operator');
+      recordVerification({
+        attemptId: attempt.id,
+        headSha,
+        kind: 'github_checks',
+        status: 'unverified',
+        reason: 'no_checks',
+      });
+      recordVerification({
+        attemptId: attempt.id,
+        headSha,
+        kind: 'command',
+        status: 'unverified',
+        reason: 'verification_spec_pending_approval',
+      });
+      recordVerification({
+        attemptId: attempt.id,
+        headSha,
+        kind: 'command',
+        status: 'failed',
+        exitCode: 127,
+      });
+      recordVerification({
+        attemptId: attempt.id,
+        headSha,
+        kind: 'command',
+        status: 'passed',
+        specShell: 'sh',
+        specScript: script,
+        specSha256,
+        exitCode: 0,
+      });
+
+      const report = buildReport({ now: Date.now() });
+      const row = report.ledger[0];
+      if (row === undefined || row.current === null) throw new Error('Ledger attempt is missing');
+      const current = row.current;
+      expect(current.verification.command?.status).toBe('passed');
+      expect(current.verification.githubChecks).toMatchObject({
+        status: 'unverified',
+        reason: 'no_checks',
+      });
+      expect(
+        current.verification.prior.map((verification) => [
+          verification.kind,
+          verification.status,
+          verification.exitCode,
+        ])
+      ).toEqual([
+        ['command', 'failed', 127],
+        ['command', 'unverified', null],
+      ]);
+      expect(current.verification.stale).toEqual([]);
+      expect(renderDashboard(report)).toContain('prior command');
+      expect(renderDashboard(report)).toContain('2 prior run(s) for this head');
+    });
+
     it('preserves unknown ACU as null and omits raw verification payloads', () => {
       const task = makeTask(32);
       const attempt = attemptFor(task.id);
+      recordPullRequest(attempt.id, {
+        prUrl: `https://github.com/owner/repo/pull/${String(attempt.id)}`,
+        prNumber: attempt.id,
+        prState: 'open',
+        prHeadSha: 'redacted-head',
+      });
+      recordVerification({
+        attemptId: attempt.id,
+        headSha: 'redacted-head',
+        kind: 'command',
+        status: 'passed',
+        specScript: 'SECRET_SCRIPT_BODY',
+        evidenceSummary: 'RAW_OUTPUT_SENTINEL',
+      });
       recordVerification({
         attemptId: attempt.id,
         headSha: 'redacted-head',

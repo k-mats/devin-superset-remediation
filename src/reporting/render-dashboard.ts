@@ -66,7 +66,7 @@ function renderSessionEvidence(attempt: LedgerAttemptEvidence): string {
     attempt.devinSessionStatusDetail === null
       ? ''
       : ` · ${escapeHtml(attempt.devinSessionStatusDetail)}`;
-  return `${session}<small>${escapeHtml(status)}${detail}<br>ACU: ${escapeHtml(formatAcus(attempt.acusConsumed))}</small>`;
+  return `${session}<small>${escapeHtml(status)}${detail}<br>ACU observed: ${escapeHtml(formatAcus(attempt.acusConsumed))}<br>session snapshot: ${escapeHtml(formatTime(attempt.timestamps.sessionUpdatedAt))}</small>`;
 }
 
 function renderPrEvidence(attempt: LedgerAttemptEvidence): string {
@@ -95,6 +95,15 @@ function renderApproval(attempt: LedgerAttemptEvidence): string {
 }
 
 function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
+  const prior =
+    attempt.verification.prior.length === 0
+      ? ''
+      : `<ul>${attempt.verification.prior
+          .map(
+            (verification) =>
+              `<li>prior ${escapeHtml(verification.kind)} (head <code title="${escapeHtml(verification.headSha)}">${escapeHtml(verification.headSha.slice(0, 12))}</code>): ${renderVerificationEvidence(verification)}</li>`
+          )
+          .join('')}</ul>`;
   const stale =
     attempt.verification.stale.length === 0
       ? ''
@@ -104,13 +113,15 @@ function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
               `<li>stale ${escapeHtml(verification.kind)} (head <code title="${escapeHtml(verification.headSha)}">${escapeHtml(verification.headSha.slice(0, 12))}</code>): ${renderVerificationEvidence(verification)}</li>`
           )
           .join('')}</ul>`;
-  return `<li>attempt #${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} / ${escapeHtml(attempt.reason)} · ${renderSessionEvidence(attempt)} · ${renderPrEvidence(attempt)} · command: ${renderVerificationEvidence(attempt.verification.command)} · checks: ${renderVerificationEvidence(attempt.verification.githubChecks)}${stale}</li>`;
+  return `<li>attempt #${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} / ${escapeHtml(attempt.reason)} · ${renderSessionEvidence(attempt)} · ${renderPrEvidence(attempt)} · command: ${renderVerificationEvidence(attempt.verification.command)} · checks: ${renderVerificationEvidence(attempt.verification.githubChecks)}${prior}${stale}</li>`;
 }
 
 function renderAttemptHistory(history: LedgerAttemptEvidence[]): string {
-  const hasStale = history.some((entry) => entry.verification.stale.length > 0);
-  if (history.length <= 1 && !hasStale) return '';
-  return `<details><summary>Attempt history (${String(history.length)}) / stale evidence</summary><ol>${history.map(renderHistoryAttempt).join('')}</ol></details>`;
+  const hasVerificationHistory = history.some(
+    (entry) => entry.verification.prior.length > 0 || entry.verification.stale.length > 0
+  );
+  if (history.length <= 1 && !hasVerificationHistory) return '';
+  return `<details><summary>Attempt history (${String(history.length)}) / verification history</summary><ol>${history.map(renderHistoryAttempt).join('')}</ol></details>`;
 }
 
 function renderAttempt(attempt: ReportAttemptRow): string {
@@ -179,9 +190,23 @@ export function renderDashboard(report: Report): string {
         return `<tr><td>${issue}</td><td><strong>${escapeHtml(row.state)}</strong><small>${escapeHtml(row.reason)}</small></td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
       }
       const attemptHistory = renderAttemptHistory(row.history);
+      const priorCommandCount = current.verification.prior.filter(
+        (verification) => verification.kind === 'command'
+      ).length;
+      const priorGitHubChecksCount = current.verification.prior.filter(
+        (verification) => verification.kind === 'github_checks'
+      ).length;
+      const commandPrior =
+        priorCommandCount === 0
+          ? ''
+          : `<small>${String(priorCommandCount)} prior run(s) for this head</small>`;
+      const githubChecksPrior =
+        priorGitHubChecksCount === 0
+          ? ''
+          : `<small>${String(priorGitHubChecksCount)} prior run(s) for this head</small>`;
       const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
       const timestamps = `<small>discovered ${escapeHtml(formatTime(row.discoveredAt))}<br>dispatched ${escapeHtml(formatTime(current.timestamps.dispatchedAt))}<br>session created ${escapeHtml(formatTime(current.timestamps.sessionCreatedAt))}<br>completed ${escapeHtml(formatTime(current.timestamps.completedAt))}<br>terminal ${escapeHtml(formatTime(current.timestamps.terminalAt))}<br>verified ${escapeHtml(formatTime(current.timestamps.verifiedAt))}</small>`;
-      return `<tr><td>${issue}</td><td><strong>${escapeHtml(row.state)}</strong><small>${escapeHtml(row.reason)}</small></td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
+      return `<tr><td>${issue}</td><td><strong>${escapeHtml(row.state)}</strong><small>${escapeHtml(row.reason)}</small></td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
     })
     .join('');
   const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
