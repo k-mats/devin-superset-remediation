@@ -23,6 +23,96 @@ This project implements an automated system that:
 - **Linting**: ESLint 10 with typescript-eslint
 - **Formatting**: Prettier
 
+## Running with Docker (Issue #17)
+
+The whole solution is containerized: a multi-stage `Dockerfile` builds the
+TypeScript application and produces a runtime image that also bundles `git`,
+`uv`, Python 3.12, and the Superset native build dependencies
+(`pkg-config`, `default-libmysqlclient-dev`, `libldap2-dev`, `libsasl2-dev`,
+`libffi-dev`, `libssl-dev`, `gcc`, `g++`, `make`), so independent
+verification (`src/verification/`, Issue #13) runs inside the container
+unchanged. The container runs as the non-root user `app` (uid 1001) and no
+secrets are baked into the image — credentials are passed only via `.env` /
+environment variables at run time.
+
+### Prerequisites
+
+- Docker Engine 20.10+ (developed against Docker 29)
+- Docker Compose v2+ (`docker compose`, developed against v5)
+
+### Clean checkout → running service
+
+```bash
+git clone https://github.com/k-mats/devin-superset-remediation.git
+cd devin-superset-remediation
+cp .env.example .env
+docker compose up --build
+```
+
+Then, in another terminal:
+
+```bash
+curl http://localhost:3000/health      # {"status":"ok",...}
+curl http://localhost:3000/ready       # {"status":"ready","database":"connected",...}
+curl http://localhost:3000/api/report  # JSON observability report
+```
+
+and open `http://localhost:3000/dashboard` for the HTML dashboard.
+
+### Environment variables
+
+`.env` is loaded via `env_file`; the compose `environment:` block pins
+`DATABASE_PATH=/app/data/orchestrator.db`, `HOST=0.0.0.0`, `PORT=3000`, and
+`VERIFICATION_WORKSPACE_ROOT=/app/data/verification` on top. With all
+credentials unset the application still starts and serves health, readiness,
+reporting, and the dashboard — only GitHub intake, Devin dispatch, and
+session/PR tracking are skipped (each logs a warning).
+
+| Group                      | Variables                                                                                                                              | Required?                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                        | No — defaults in `.env.example` suffice |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_INTAKE_LABEL`                                | Only for real orchestration             |
+| Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                          | Only for real orchestration             |
+| Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*` | No — sensible defaults                  |
+
+### Persistence
+
+The SQLite database lives on the named volume `orchestrator-data` mounted at
+`/app/data` (which also holds the verification workspace under
+`/app/data/verification`).
+
+- `docker compose restart` — data kept
+- `docker compose down && docker compose up -d` — data kept
+- `docker compose down -v` — **deletes** the volume and all state
+
+Verify persistence after the container is healthy:
+
+```bash
+docker compose exec app node -e "import('/app/dist/db/client.js').then(async ({runMigrations,closeDb})=>{runMigrations();const s=await import('/app/dist/db/task-state.js');const t=s.upsertTask({repoOwner:'k-mats',repoName:'superset',issueNumber:17,title:'Docker persistence check'});s.createAttempt(t.id);console.log(JSON.stringify(t));closeDb();})"
+curl -s http://localhost:3000/api/report | grep -i docker
+docker compose restart
+curl -s http://localhost:3000/api/report | grep -i docker   # still present
+```
+
+### Single-command equivalent
+
+Compose is the primary path; a plain `docker run` works too:
+
+```bash
+docker build -t devin-superset-remediation .
+docker run --rm -p 3000:3000 --env-file .env \
+  -v orchestrator-data:/app/data devin-superset-remediation
+```
+
+### Graceful shutdown
+
+`docker compose stop` (or `down`) sends SIGTERM; the service closes the
+HTTP server and database cleanly before exiting. `stop_grace_period: 15s`
+gives in-flight polls time to finish.
+
+See [docs/evidence/issue-17-docker.md](docs/evidence/issue-17-docker.md) for a
+recorded clean-checkout run.
+
 ## Development
 
 ### Prerequisites

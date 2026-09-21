@@ -54,7 +54,7 @@ devin-superset-remediation/
 │   ├── verification-approve.ts# Approve a pending verification spec by sha256
 │   └── verification-propose.ts# Propose a verification spec as the operator
 ├── docs/
-│   └── evidence/             # Verification evidence artifacts
+│   └── evidence/             # Verification evidence artifacts (incl. issue-17-docker.md)
 ├── tests/
 │   ├── setup.ts              # Test configuration
 │   ├── health.test.ts        # Health endpoint test
@@ -71,6 +71,9 @@ devin-superset-remediation/
 ├── eslint.config.mjs         # ESLint flat config
 ├── drizzle.config.ts         # Drizzle Kit configuration
 ├── .env.example              # Environment variables template
+├── Dockerfile                # Multi-stage image (build on bookworm-slim; runtime bundles git/uv/Python 3.12 + Superset native deps)
+├── compose.yaml              # docker compose service, named volume, healthcheck (Issue #17)
+├── .dockerignore             # Build-context exclusions
 └── AGENTS.md, REVIEW.md, architecture.md, product.md
 ```
 
@@ -119,6 +122,10 @@ devin-superset-remediation/
 - `pnpm db:generate` - Generate Drizzle migrations from schema
 - `pnpm db:migrate` - Apply migrations to the database
 - `pnpm demo:restart` - Demonstrate state recovery across process restart
+
+### Docker (Issue #17)
+
+- `docker compose up --build` - Build and run the full service (see README "Running with Docker")
 
 ## Safety Rules
 
