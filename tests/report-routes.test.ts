@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
@@ -23,7 +24,7 @@ describe('report routes', () => {
       issueNumber: 15,
       title: '<script>alert(1)</script>',
     });
-    createAttempt(task.id, 'real');
+    createAttempt(task.id);
   });
 
   afterAll(async () => {
@@ -31,23 +32,19 @@ describe('report routes', () => {
     closeDb();
   });
 
-  it('returns a no-store report with the real default filter', async () => {
+  it('returns a no-store report for the configured database', async () => {
     const response = await server.inject({ method: 'GET', url: '/api/report' });
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(JSON.parse(response.payload)).toMatchObject({
-      filter: { runKinds: ['real'] },
       summary: { totalTasks: 1 },
+      context: { databasePath: resolve('./test-database.db') },
     });
   });
 
-  it('rejects an invalid run kind', async () => {
+  it('ignores the removed run-kind query parameter', async () => {
     const response = await server.inject({ method: 'GET', url: '/api/report?run_kind=bogus' });
-    expect(response.statusCode).toBe(400);
-    expect(JSON.parse(response.payload)).toEqual({
-      error: 'invalid run_kind',
-      allowed: ['real', 'demo', 'mock', 'unknown'],
-    });
+    expect(response.statusCode).toBe(200);
   });
 
   it('renders escaped task titles and normalized state labels', async () => {
@@ -56,6 +53,7 @@ describe('report routes', () => {
     expect(response.headers['content-type']).toContain('text/html');
     expect(response.payload).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(response.payload).not.toContain('<script>alert(1)</script>');
+    expect(response.payload).toContain(resolve('./test-database.db'));
     expect(response.payload).toContain('VERIFIED');
   });
 });

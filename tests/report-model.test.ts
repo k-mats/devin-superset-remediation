@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
@@ -34,14 +35,14 @@ function taskRow(report: ReturnType<typeof buildReport>) {
   return row;
 }
 
-function makeTask(issueNumber: number, runKind: 'real' | 'demo' | 'mock' = 'real') {
+function makeTask(issueNumber: number) {
   const task = upsertTask({
     repoOwner: 'owner',
     repoName: 'repo',
     issueNumber,
     title: `Issue ${String(issueNumber)}`,
   });
-  createAttempt(task.id, runKind);
+  createAttempt(task.id);
   return task;
 }
 
@@ -93,7 +94,7 @@ describe('report model', () => {
     const task = makeTask(1);
     const first = attemptFor(task.id);
     completeAttempt(first.id, 'failed', { reason: 'first failed' });
-    const second = createAttempt(task.id, 'real');
+    const second = createAttempt(task.id);
     verify(second.id, 'session-2');
 
     const report = buildReport({ now: Date.now() });
@@ -134,13 +135,9 @@ describe('report model', () => {
     expect(buildReport({ now: Date.now() }).tasks[0]?.bucket).toBe(bucket);
   });
 
-  it('filters by current attempt run kind while exposing all-kind breakdown', () => {
-    makeTask(5, 'mock');
-    makeTask(6, 'demo');
+  it('reports the configured database context', () => {
     const report = buildReport({ now: Date.now() });
-    expect(report.summary.totalTasks).toBe(0);
-    expect(report.runKindBreakdown).toMatchObject({ mock: 1, demo: 1 });
-    expect(buildReport({ filter: { runKinds: ['mock', 'demo'] } }).summary.totalTasks).toBe(2);
+    expect(report.context.databasePath).toBe(resolve('./test-database.db'));
   });
 
   it('counts discovered tasks in the requested throughput windows', () => {
