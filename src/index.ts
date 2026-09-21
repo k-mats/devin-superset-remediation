@@ -11,6 +11,7 @@ import { createDevinClientFromConfig } from './devin/client.js';
 import { startIntakePoller } from './intake/github-intake.js';
 import { startDispatchPoller } from './dispatch/devin-dispatcher.js';
 import { startTrackingPoller } from './tracking/session-tracker.js';
+import { startReconciliationPoller } from './dispatch/reconcile-uncertain-dispatch.js';
 
 export async function buildServer() {
   // Bring the schema up to date before the server can accept traffic.
@@ -148,8 +149,36 @@ export async function buildServer() {
     }
   }
 
+  let stopReconciliationPoller: (() => Promise<void>) | undefined;
+  if (config.devinReconcileIntervalMs === 0) {
+    server.log.info('Devin uncertain-dispatch reconciliation disabled');
+  } else {
+    const missing: string[] = [];
+    if (!config.devinApiKey) missing.push('DEVIN_API_KEY');
+    if (!config.devinOrgId) missing.push('DEVIN_ORG_ID');
+    if (missing.length > 0) {
+      server.log.warn(
+        { missing },
+        'Devin uncertain-dispatch reconciliation skipped because configuration is incomplete'
+      );
+    } else {
+      const poller = startReconciliationPoller({
+        devin: createDevinClientFromConfig(config),
+        graceMs: config.devinDispatchGraceMs,
+        intervalMs: config.devinReconcileIntervalMs,
+        logger: server.log,
+      });
+      stopReconciliationPoller = () => poller.stop();
+    }
+  }
+
   server.addHook('preClose', async () => {
-    await Promise.all([stopIntakePoller?.(), stopDispatchPoller?.(), stopTrackingPoller?.()]);
+    await Promise.all([
+      stopIntakePoller?.(),
+      stopDispatchPoller?.(),
+      stopTrackingPoller?.(),
+      stopReconciliationPoller?.(),
+    ]);
   });
 
   // Clean up resources whenever the Fastify instance is closed.

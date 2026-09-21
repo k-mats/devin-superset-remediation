@@ -15,7 +15,8 @@ devin-superset-remediation/
 │   │   ├── client.ts         # Devin v3 Organization API client
 │   │   └── structured-output.ts # Structured output contract (Issue #10)
 │   ├── dispatch/             # Devin session dispatch
-│   │   └── devin-dispatcher.ts # Pending-attempt claim and session dispatch (Issues #8, #9)
+│   │   ├── devin-dispatcher.ts # Pending-attempt claim and session dispatch (Issues #8, #9)
+│   │   └── reconcile-uncertain-dispatch.ts # Uncertain-dispatch reconciliation and session adoption (Issue #20)
 │   ├── github/               # GitHub API
 │   │   └── client.ts         # GitHub issue API client
 │   ├── intake/               # GitHub issue intake
@@ -69,7 +70,9 @@ devin-superset-remediation/
 │   ├── database.test.ts      # Database integration test
 │   ├── task-state.test.ts    # Persistent task state tests
 │   ├── session-tracker.test.ts # Session and PR tracking tests
-│   └── normalized-task-state.test.ts # Normalized task-state projection tests
+│   ├── normalized-task-state.test.ts # Normalized task-state projection tests
+│   ├── reconcile-uncertain-dispatch.test.ts # Uncertain-dispatch reconciliation tests (Issue #20)
+│   └── restart-recovery.test.ts # Restart-shaped persistence and recovery tests (Issue #20)
 │   ├── report-model.test.ts # Reporting model tests
 │   └── report-routes.test.ts # Reporting route tests
 ├── drizzle/                  # Drizzle migrations
