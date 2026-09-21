@@ -116,6 +116,25 @@ async function refreshPullRequest(
   }
 }
 
+async function maybeVerifyRemediation(
+  attempt: Attempt,
+  task: Task,
+  opts: SessionTrackerOptions,
+  db: Db
+): Promise<TrackingDecision | undefined> {
+  if (attempt.state !== 'verifying' || opts.verification === undefined) return undefined;
+  const decision = await verifyRemediationOnce(attempt, task, {
+    ...opts.verification,
+    github: opts.github as Pick<
+      GitHubClient,
+      'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
+    >,
+    logger: opts.logger,
+    db,
+  });
+  return decision === 'verification_skipped' ? undefined : decision;
+}
+
 export async function trackAttemptOnce(
   attempt: Attempt,
   task: Task,
@@ -144,10 +163,13 @@ export async function trackAttemptOnce(
       { ...context, err: error },
       'Devin session lookup failed for verifying attempt; refreshing pull request'
     );
-    const current = getAttempt(attempt.id, db);
+    let current = getAttempt(attempt.id, db);
     if (!current || current.state !== 'verifying') return 'failed';
     const refreshed = await refreshPullRequest(current, task, opts, db);
-    return refreshed ?? 'failed';
+    if (refreshed !== 'pr_refreshed') return refreshed ?? 'failed';
+    current = getAttempt(current.id, db);
+    if (!current) return refreshed;
+    return (await maybeVerifyRemediation(current, task, opts, db)) ?? refreshed;
   }
   let current = getAttempt(attempt.id, db);
   if (!current) throw new Error(`Attempt ${String(attempt.id)} not found after snapshot`);
@@ -246,17 +268,9 @@ export async function trackAttemptOnce(
   }
 
   current = current ? getAttempt(current.id, db) : undefined;
-  if (current?.state === 'verifying' && opts.verification !== undefined && !deferred) {
-    const verificationDecision = await verifyRemediationOnce(current, task, {
-      ...opts.verification,
-      github: opts.github as Pick<
-        GitHubClient,
-        'getIssue' | 'getPullRequest' | 'listCheckRuns' | 'getCombinedStatus'
-      >,
-      logger: opts.logger,
-      db,
-    });
-    if (verificationDecision !== 'verification_skipped') {
+  if (current && !deferred) {
+    const verificationDecision = await maybeVerifyRemediation(current, task, opts, db);
+    if (verificationDecision !== undefined) {
       decision = verificationDecision;
     }
   }

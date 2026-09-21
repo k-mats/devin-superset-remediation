@@ -445,18 +445,13 @@ describe('Devin dispatcher', () => {
     const dispatchLogger = logger();
     const devin = fakeDevin();
 
-    // Fail only the second UPDATE: the claim write succeeds, the
-    // session_created write in markSessionCreated throws.
+    // Fail inside the persistence transaction: the claim write succeeds, the
+    // transactional session_created + verification spec write throws.
     const realDb = getDb();
     const flakyDb = Object.create(realDb) as Db;
-    let updateCalls = 0;
-    flakyDb.update = ((table: Parameters<Db['update']>[0]) => {
-      updateCalls += 1;
-      if (updateCalls === 2) {
-        throw new Error('write failed');
-      }
-      return realDb.update(table);
-    }) as Db['update'];
+    flakyDb.transaction = () => {
+      throw new Error('write failed');
+    };
     const opts = dispatchOptions({ devin, logger: dispatchLogger }, flakyDb);
 
     const decision = await dispatchAttempt(attempt, task, opts);

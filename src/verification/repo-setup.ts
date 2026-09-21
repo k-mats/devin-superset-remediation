@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -74,11 +75,39 @@ async function requireBinary(binary: string, cwd: string, timeoutMs: number): Pr
   }
 }
 
+const REQUIREMENTS_FILE = 'requirements/development.txt';
+const REQUIREMENTS_MARKER = '.requirements-sha256';
+
+function requirementsSha256(cwd: string): string {
+  try {
+    return createHash('sha256')
+      .update(fs.readFileSync(path.join(cwd, REQUIREMENTS_FILE)))
+      .digest('hex');
+  } catch (error: unknown) {
+    throw new SetupError(
+      'install_failed',
+      `Cannot read ${REQUIREMENTS_FILE}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 export const supersetSetupAdapter: RepoSetupAdapter = {
   name: 'superset',
   async setup(workspace, opts) {
     await requireBinary('uv', workspace.cwd, opts.timeoutMs);
     const venvDir = path.join(workspace.cwd, '.venv');
+    const markerPath = path.join(venvDir, REQUIREMENTS_MARKER);
+    const requirementsSha = requirementsSha256(workspace.cwd);
+    if (fs.existsSync(venvDir)) {
+      const marker = fs.existsSync(markerPath) ? fs.readFileSync(markerPath, 'utf8').trim() : null;
+      if (marker !== requirementsSha) {
+        opts.logger.info(
+          { reason: 'requirements_changed', cwd: workspace.cwd },
+          'Recreating the verification virtualenv'
+        );
+        fs.rmSync(venvDir, { recursive: true, force: true });
+      }
+    }
     if (!fs.existsSync(venvDir)) {
       await runSetupCommand(
         ['uv', 'venv', '.venv', '--python', '3.12'],
@@ -88,11 +117,12 @@ export const supersetSetupAdapter: RepoSetupAdapter = {
       );
     }
     await runSetupCommand(
-      ['uv', 'pip', 'install', '-r', 'requirements/development.txt'],
+      ['uv', 'pip', 'install', '-r', REQUIREMENTS_FILE],
       workspace.cwd,
       opts.timeoutMs,
       'install_failed'
     );
+    fs.writeFileSync(markerPath, `${requirementsSha}\n`);
     return {
       PATH: `${venvDir}/bin:${baseEnv()['PATH'] ?? ''}`,
       VIRTUAL_ENV: venvDir,

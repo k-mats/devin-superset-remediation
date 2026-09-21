@@ -458,4 +458,36 @@ describe('independent verification integration', () => {
     expect(result.verificationFailed).toBe(1);
     expect(getAttempt(attempt.id)?.state).toBe('verifying');
   });
+
+  it('still runs verification when the Devin session lookup fails', async () => {
+    const { attempt } = activeAttempt(23);
+    markRunning(attempt.id);
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(attempt.id);
+    approveIssueSpec(attempt.id);
+
+    const runCommand = vi.fn().mockResolvedValue({
+      status: 'passed',
+      exitCode: 0,
+      output: 'ok',
+      startedAt: 1,
+      finishedAt: 2,
+    });
+    const result = await runTrackingOnce({
+      devin: { getSession: vi.fn().mockRejectedValue(new Error('devin down')) },
+      github: githubWithVerification(),
+      logger: logger(),
+      staleWarnMs: 0,
+      verification: verificationOpts({ runCommand }),
+    });
+
+    expect(runCommand).toHaveBeenCalledTimes(1);
+    expect(result.verificationPassed).toBe(1);
+    expect(getAttempt(attempt.id)).toMatchObject({ state: 'completed', outcome: 'succeeded' });
+  });
 });

@@ -118,14 +118,18 @@ head is re-fetched — if it moved during the run, the recorded pass applies to
 the old head, the new head is stored, and the attempt stays `verifying` for
 the next poll. A previously recorded `passed` row for the current head also
 repairs an attempt left in `verifying` (e.g. after a crash between the run
-and the state transition).
+and the state transition). Completion is additionally guarded by a
+superseded-spec check: if the candidate or approved spec changed while the
+command ran, the `passed` row is recorded but the attempt stays `verifying`.
 
 Safety: only the approved spec ever executes — never the current candidate —
 inside a per-repo clone with a minimal environment (`PATH`, `HOME`, locale,
 `CI=1`, `GIT_TERMINAL_PROMPT=0`; application secrets are never propagated), a
 process-group kill on timeout, and bounded captured output. A repository setup
 adapter (`resolveSetupAdapter`; `superset` gets a `uv`-managed `.venv`, all
-others a no-op) prepares the workspace before the command runs.
+others a no-op) prepares the workspace before the command runs. The Superset
+venv is keyed to a `.requirements-sha256` marker — a changed
+`requirements/development.txt` between heads recreates it before install.
 
 Each dispatched session is created with `structured_output_required` and a
 JSON Schema (version 1, defined in `src/devin/structured-output.ts`)

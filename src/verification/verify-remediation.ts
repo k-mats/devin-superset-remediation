@@ -224,7 +224,11 @@ export async function verifyRemediationOnce(
     (latestCommand.status === 'passed' || latestCommand.status === 'failed') &&
     latestCommand.specSha256 === approved.sha256
   ) {
-    if (latestCommand.status === 'passed' && attempt.state === 'verifying') {
+    if (
+      latestCommand.status === 'passed' &&
+      attempt.state === 'verifying' &&
+      attempt.prHeadSha === headSha
+    ) {
       completeAttempt(
         attempt.id,
         'succeeded',
@@ -362,12 +366,25 @@ export async function verifyRemediationOnce(
       },
       tx
     );
-    if (result.status === 'passed' && completeHead) {
+    const fresh = getAttempt(attempt.id, tx);
+    if (
+      result.status === 'passed' &&
+      completeHead &&
+      fresh?.state === 'verifying' &&
+      fresh.prHeadSha === headSha &&
+      fresh.verificationCandidateSha256 === approved.sha256 &&
+      fresh.verificationApprovedSha256 === approved.sha256
+    ) {
       completeAttempt(
         attempt.id,
         'succeeded',
         { reason: `independent_verification_passed: ${headSha}` },
         tx
+      );
+    } else if (result.status === 'passed' && completeHead) {
+      opts.logger.warn(
+        { attempt_id: attempt.id, head_sha: headSha, spec_sha256: approved.sha256 },
+        'Verification spec superseded during run; not completing'
       );
     }
     return recorded;

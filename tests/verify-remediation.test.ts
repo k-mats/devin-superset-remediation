@@ -437,6 +437,29 @@ describe('verifyRemediationOnce', () => {
     expect(freshAttempt(attempt.id).state).toBe('completed');
   });
 
+  it('records a passed row but does not complete when the spec was superseded during the run', async () => {
+    const { task, attempt } = verifyingAttempt();
+    const approved = approveIssueSpec(attempt.id, 'echo ok');
+    const opts = options({
+      runCommand: vi.fn(() => {
+        setVerificationCandidate(attempt.id, spec('echo other'), 'operator');
+        return Promise.resolve({
+          status: 'passed',
+          exitCode: 0,
+          output: 'ok',
+          startedAt: 1,
+          finishedAt: 2,
+        } satisfies CommandRunResult);
+      }),
+    });
+    const result = await verifyRemediationOnce(attempt, task, opts);
+    expect(result).toBe('verification_passed');
+    const updated = freshAttempt(attempt.id);
+    expect(updated.state).toBe('verifying');
+    const command = listVerifications(attempt.id).find((row) => row.kind === 'command');
+    expect(command).toMatchObject({ status: 'passed', specSha256: approved.sha256 });
+  });
+
   it('records checkout_failed errors without running the command', async () => {
     const { task, attempt } = verifyingAttempt();
     approveIssueSpec(attempt.id, 'echo ok');

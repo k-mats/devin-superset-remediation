@@ -160,12 +160,24 @@ export async function dispatchAttempt(
     return 'session_create_failed';
   }
 
+  const specResult = parseVerificationSpec(issue.body);
   try {
-    markSessionCreated(
-      attempt.id,
-      { devinSessionId: session.session_id, devinSessionUrl: session.url },
-      db
-    );
+    db.transaction((tx) => {
+      markSessionCreated(
+        attempt.id,
+        { devinSessionId: session.session_id, devinSessionUrl: session.url },
+        tx
+      );
+      if (specResult.ok) {
+        setVerificationCandidate(attempt.id, specResult.spec, 'issue_verification_section', tx);
+        approveVerificationSpec(
+          attempt.id,
+          specResult.spec.sha256,
+          'issue_verification_section',
+          tx
+        );
+      }
+    });
   } catch (error: unknown) {
     // The session exists server-side; keep the id in the log so the Issue #20
     // reconciliation pass can recover this dispatching attempt.
@@ -181,12 +193,6 @@ export async function dispatchAttempt(
       'Devin session created but could not be persisted; attempt left in dispatching for reconciliation'
     );
     return 'session_persist_failed';
-  }
-
-  const specResult = parseVerificationSpec(issue.body);
-  if (specResult.ok) {
-    setVerificationCandidate(attempt.id, specResult.spec, 'issue_verification_section', db);
-    approveVerificationSpec(attempt.id, specResult.spec.sha256, 'issue_verification_section', db);
   }
 
   opts.logger.info(
