@@ -675,20 +675,33 @@ describe('task state repository', () => {
     expect(findStaleDispatchingAttempts().map((attempt) => attempt.id)).toEqual([stale.id]);
   });
 
-  it('tracks completed pull requests whose state is still unknown', () => {
+  it('tracks completed pull requests until they are closed or merged', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 4 });
-    const attempt = createAttempt(task.id);
-    markDispatching(attempt.id);
-    markSessionCreated(attempt.id, { devinSessionId: 'legacy-session' });
-    completeAttempt(attempt.id, 'succeeded');
     const rawDb = getRawDb();
     if (!rawDb) throw new Error('Raw database was not initialized');
-    rawDb
-      .prepare('UPDATE attempts SET pr_url = ?, pr_number = ?, pr_state = NULL WHERE id = ?')
-      .run('https://github.com/owner/repo/pull/42', 42, attempt.id);
+    const setPrState = (prState: 'open' | 'closed' | 'merged' | null) => {
+      const attempt = createAttempt(task.id);
+      markDispatching(attempt.id);
+      markSessionCreated(attempt.id, { devinSessionId: `legacy-session-${String(attempt.id)}` });
+      completeAttempt(attempt.id, 'succeeded');
+      rawDb
+        .prepare('UPDATE attempts SET pr_url = ?, pr_number = ?, pr_state = ? WHERE id = ?')
+        .run('https://github.com/owner/repo/pull/42', 42, prState, attempt.id);
+      return attempt.id;
+    };
+    const unknown = setPrState(null);
+    const open = setPrState('open');
+    const closed = setPrState('closed');
+    const merged = setPrState('merged');
 
     expect(
       findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
-    ).toEqual([attempt.id]);
+    ).toEqual([unknown, open]);
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).not.toContain(closed);
+    expect(
+      findCompletedAttemptsWithTrackedPullRequests().map(({ attempt: row }) => row.id)
+    ).not.toContain(merged);
   });
 });

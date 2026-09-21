@@ -63,10 +63,6 @@ function logContext(attempt: Attempt) {
   };
 }
 
-function isActive(attempt: Attempt): boolean {
-  return ['session_created', 'running', 'verifying'].includes(attempt.state);
-}
-
 function isLookupDeferred(error: unknown): boolean {
   return (
     error instanceof GitHubApiError &&
@@ -150,7 +146,7 @@ export async function trackAttemptOnce(
 
   if (
     opts.staleWarnMs > 0 &&
-    isActive(current) &&
+    ['session_created', 'running'].includes(current.state) &&
     Date.now() - Math.max(sessionUpdatedAt(session), current.sessionCreatedAt ?? 0) >
       opts.staleWarnMs
   ) {

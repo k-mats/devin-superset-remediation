@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { closeDb, getDb, runMigrations } from '../src/db/client.js';
+import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks } from '../src/db/schema.js';
 import { DevinApiError, type SessionResponse } from '../src/devin/client.js';
 import {
@@ -261,5 +261,45 @@ describe('session tracker', () => {
       outcome: null,
       agentOutcome: 'remediated',
     });
+  });
+
+  it('warns about stale running sessions but not verifying attempts', async () => {
+    const verifying = activeAttempt(12);
+    markRunning(verifying.attempt.id);
+    recordPullRequest(verifying.attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-1',
+    });
+    markVerifying(verifying.attempt.id);
+    const running = activeAttempt(13);
+    markRunning(running.attempt.id);
+    const log = logger();
+    const oldUpdatedAt = Math.floor((Date.now() - 10_000) / 1000);
+    const rawDb = getRawDb();
+    if (!rawDb) throw new Error('Raw database was not initialized');
+    rawDb
+      .prepare('UPDATE attempts SET session_created_at = ? WHERE id IN (?, ?)')
+      .run(Date.now() - 10_000, verifying.attempt.id, running.attempt.id);
+
+    await runTrackingOnce({
+      devin: {
+        getSession: vi
+          .fn()
+          .mockResolvedValueOnce(session({ updated_at: oldUpdatedAt, status: 'exit' }))
+          .mockResolvedValueOnce(session({ updated_at: oldUpdatedAt, status: 'running' })),
+      },
+      github: { getPullRequest: vi.fn().mockResolvedValue(pullRequest()) },
+      logger: log,
+      staleWarnMs: 1_000,
+    });
+
+    const staleWarnings = log.warn.mock.calls.filter(
+      ([, message]) =>
+        message === 'Devin session has not updated for longer than the stale threshold'
+    );
+    expect(staleWarnings).toHaveLength(1);
+    expect(staleWarnings[0]?.[0]).toMatchObject({ attempt_id: running.attempt.id });
   });
 });

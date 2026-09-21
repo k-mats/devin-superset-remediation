@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, isNotNull, isNull, max, ne, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, max, or } from 'drizzle-orm';
 import Database, { type RunResult } from 'better-sqlite3';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { getDb } from './client.js';
@@ -459,7 +459,7 @@ export function findCompletedAttemptsWithTrackedPullRequests(
       and(
         eq(attempts.state, 'completed'),
         isNotNull(attempts.prNumber),
-        or(isNull(attempts.prState), ne(attempts.prState, 'merged'))
+        or(isNull(attempts.prState), eq(attempts.prState, 'open'))
       )
     )
     .orderBy(asc(attempts.createdAt), asc(attempts.id))
