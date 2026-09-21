@@ -71,7 +71,10 @@ function decisionFor(status: Verification['status']): RemediationVerificationDec
 
 function boundSummary(summary: string, maxBytes: number): string {
   const bytes = Buffer.from(summary, 'utf8');
-  return bytes.length > maxBytes ? bytes.subarray(-maxBytes).toString('utf8') : summary;
+  if (bytes.length <= maxBytes) return summary;
+  let start = bytes.length - maxBytes;
+  while (start < bytes.length && (bytes.readUInt8(start) & 0xc0) === 0x80) start += 1;
+  return bytes.subarray(start).toString('utf8');
 }
 
 export async function verifyRemediationOnce(
