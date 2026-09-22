@@ -42,8 +42,8 @@ const BY_REASON = {
     text: 'PR recorded but its head commit is not known yet; the next tracking pass refreshes it.',
   },
   verified_head_superseded: {
-    next: 'operator',
-    text: 'New commits replaced the PR head that passed verification. The attempt is already completed, so the tracker only refreshes the PR and does not re-verify automatically. Use "Explicitly rerun approved verification" on the Verification page, or review the new head manually.',
+    next: 'human',
+    text: 'New commits replaced the PR head that passed verification. The attempt is already completed, so the tracker only refreshes the PR; neither automatic nor explicit re-verification is available for completed attempts. The earlier VERIFIED result does not cover the new head: review it manually before merging.',
   },
   github_checks_pending: {
     next: 'wait',
@@ -62,8 +62,8 @@ const BY_REASON = {
     text: 'The verification command could not be run (setup or infrastructure error, not a test failure). Inspect the evidence on the Verification page and rerun.',
   },
   current_head_verification_pending: {
-    next: 'operator',
-    text: 'The latest verification run for the current PR head ended as unverified on a completed attempt; the tracker will not run it again by itself. Rerun explicitly from the Verification page.',
+    next: 'human',
+    text: 'The latest verification run for the current PR head ended as unverified on a completed attempt. Completed attempts are not re-verified automatically or via the Verification page; review the head manually.',
   },
   command_verification_failed: {
     next: 'human',
