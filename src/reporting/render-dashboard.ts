@@ -1,4 +1,9 @@
-import type { LedgerAttemptEvidence, LedgerVerificationEvidence, Report } from './report-model.js';
+import type {
+  LedgerAttemptEvidence,
+  LedgerVerificationEvidence,
+  Report,
+  TaskBucket,
+} from './report-model.js';
 import {
   ALL_WORKERS_ENABLED,
   NEXT_ACTION_LABEL,
@@ -170,21 +175,25 @@ export function renderDashboard(
   report: Report,
   workers: WorkerAvailability = ALL_WORKERS_ENABLED
 ): string {
+  const mapCounts: Partial<Record<NormalizedTaskState, number>> = {};
+  const bucketCounts: Partial<Record<TaskBucket, number>> = {};
+  for (const row of report.ledger) {
+    mapCounts[row.state] = (mapCounts[row.state] ?? 0) + 1;
+    bucketCounts[row.bucket] = (bucketCounts[row.bucket] ?? 0) + 1;
+  }
   const summaryCards = [
-    ['Active', report.summary.byBucket.active],
-    ['Successful (VERIFIED)', report.summary.byBucket.successful],
-    ['Needs human', report.summary.byBucket.needs_human],
-    ['Failed', report.summary.byBucket.failed],
-    ['No action', report.summary.byBucket.no_action],
-    ['Cancelled', report.summary.byBucket.cancelled],
+    ['Active', bucketCounts.active ?? 0],
+    ['Successful (VERIFIED)', bucketCounts.successful ?? 0],
+    ['Needs human', bucketCounts.needs_human ?? 0],
+    ['Failed', bucketCounts.failed ?? 0],
+    ['No action', bucketCounts.no_action ?? 0],
+    ['Cancelled', bucketCounts.cancelled ?? 0],
   ]
     .map(
       ([label, count]) =>
         `<div class="card"><strong>${String(count)}</strong><span>${escapeHtml(String(label))} tasks</span></div>`
     )
     .join('');
-  const mapCounts: Partial<Record<NormalizedTaskState, number>> = {};
-  for (const row of report.ledger) mapCounts[row.state] = (mapCounts[row.state] ?? 0) + 1;
   const taskRows = report.ledger
     .map((row) => {
       const taskId = String(row.taskId);

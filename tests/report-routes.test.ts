@@ -141,6 +141,7 @@ describe('report routes', () => {
     expect(html).toContain('Tasks without attempts: 1');
     expect(html).toContain('<h2>Tasks (2)</h2>');
     expect(html).toContain('>0 / 0<');
+    expect(html).toContain('<strong>2</strong><span>Active tasks</span>');
     expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied">[^]*?>2 tasks</);
   });
 
