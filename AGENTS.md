@@ -63,6 +63,7 @@ devin-superset-remediation/
 │   └── tracking-demo.ts       # Single session and PR tracking pass demo (Issue #11)
 │   ├── verification-demo.ts   # Single independent verification pass demo (Issue #13)
 │   ├── adopt-session-demo.ts  # Attach an existing Devin session to a pending attempt
+│   ├── dashboard-fixtures-demo.ts # Seed one task per dashboard state/reason (no credentials)
 │   ├── verification-show.ts   # Wrapper → src/cli/verification-show.ts
 │   ├── verification-approve.ts# Wrapper → src/cli/verification-approve.ts
 │   ├── verification-propose.ts# Wrapper → src/cli/verification-propose.ts

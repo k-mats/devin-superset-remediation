@@ -470,11 +470,34 @@ alternative workflow.
 | `pnpm demo:verification --attempt <id> [--rerun]`               | One independent verification pass for a single `verifying` attempt                     | GitHub (checks); repo must be public     |
 | `pnpm demo:adopt-session`                                       | Attach an existing Devin session to a pending attempt (evidence without re-dispatch)   | Devin                                    |
 | `pnpm demo:restart`                                             | Persistent-state restart demo in `./data/demo-state-restart.db` (`DEMO_DATABASE_PATH`) | None                                     |
+| `pnpm demo:dashboard-fixtures`                                  | Seed one task per dashboard state/reason into `DATABASE_PATH` (see below)              | None                                     |
 | `pnpm verification:show --attempt <id>`                         | Print normalized state, raw provider facts, candidate/approved spec, verification rows | None                                     |
 | `pnpm verification:propose --attempt <id> --command "<cmd>"`    | Propose an operator verification spec (candidate only)                                 | None                                     |
 | `pnpm attempt:requeue --attempt <id>`                           | Fail a `dispatching` attempt that never got a Devin session and queue a new attempt    | None                                     |
 | `pnpm verification:approve --attempt <id> --spec-hash <sha256>` | Approve a pending verification spec by sha256                                          | None                                     |
 | `pnpm smoke:devin`                                              | Minimal Devin session create + poll, sanitized JSON summary                            | Devin (`DEVIN_API_KEY`, `DEVIN_ORG_ID`)  |
+
+### Dashboard fixtures (no credentials)
+
+`pnpm demo:dashboard-fixtures` walks the real attempt state machine to seed 14
+tasks covering every normalized state and reason shown on `/dashboard`
+(`spec_pending_approval`, `approved_spec_awaiting_run`, `verified_head_superseded`,
+…). Point it at a throwaway database and start the server with the pollers
+disabled so nothing tries to reach GitHub or Devin:
+
+```bash
+DATABASE_PATH=./data/dashboard-fixtures.db pnpm demo:dashboard-fixtures
+DATABASE_PATH=./data/dashboard-fixtures.db \
+  GITHUB_POLL_INTERVAL_MS=0 DEVIN_DISPATCH_INTERVAL_MS=0 \
+  DEVIN_TRACKING_INTERVAL_MS=0 DEVIN_RECONCILE_INTERVAL_MS=0 pnpm dev
+# open http://localhost:3000/dashboard
+```
+
+The Verification pages of the seeded attempts work (approve the candidate on
+issue #105 and its row flips from "Action needed" to "Wait"); explicit reruns
+are unavailable because `VERIFICATION_ENABLED` execution needs a `GITHUB_TOKEN`.
+Re-running the script against the same database fails with
+`ActiveAttemptExistsError` — delete the file first.
 
 ## Devin API smoke test (Issue #5)
 
