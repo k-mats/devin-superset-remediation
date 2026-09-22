@@ -7,11 +7,12 @@ import type { Attempt, Task } from '../db/schema.js';
 import {
   completeAttempt,
   findCompletedAttemptsWithTrackedPullRequests,
+  findSucceededAttemptsWithPullRequests,
   findTrackableAttempts,
-  findVerifiedAttemptsAwaitingLabel,
   getAttempt,
   markRunning,
   markVerifiedLabelApplied,
+  clearVerifiedLabelApplied,
   markVerifying,
   recordPullRequest,
   recordSessionSnapshot,
@@ -57,13 +58,19 @@ export interface TrackingResult {
   verificationUnverified: number;
   verificationError: number;
   verifiedLabelsApplied: number;
+  verifiedLabelsRemoved: number;
   failed: number;
 }
 
 export interface SessionTrackerOptions {
   devin: Pick<DevinClient, 'getSession'>;
   github: Pick<GitHubClient, 'getPullRequest'> &
-    Partial<Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus' | 'addLabels'>>;
+    Partial<
+      Pick<
+        GitHubClient,
+        'getIssue' | 'listCheckRuns' | 'getCombinedStatus' | 'addLabels' | 'removeLabel'
+      >
+    >;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
   staleWarnMs: number;
@@ -343,6 +350,7 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     verificationUnverified: 0,
     verificationError: 0,
     verifiedLabelsApplied: 0,
+    verifiedLabelsRemoved: 0,
     failed: 0,
   };
 
@@ -379,25 +387,49 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
   if (
     typeof opts.verifiedLabel === 'string' &&
     opts.verifiedLabel !== '' &&
-    opts.github.addLabels
+    (opts.github.addLabels || opts.github.removeLabel)
   ) {
-    for (const { attempt, task } of findVerifiedAttemptsAwaitingLabel(db)) {
+    for (const { attempt, task } of findSucceededAttemptsWithPullRequests(db)) {
       const prNumber = attempt.prNumber;
       if (prNumber === null) continue;
+      const current = getAttempt(attempt.id, db);
+      if (!current) continue;
+      const verified = projectTaskState(current, db).state === 'VERIFIED';
       try {
-        await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [opts.verifiedLabel]);
-        markVerifiedLabelApplied(attempt.id, db);
-        opts.logger.info(
-          { ...logContext(attempt), pr_number: prNumber, label: opts.verifiedLabel },
-          'Applied verified label to pull request'
-        );
-        result.verifiedLabelsApplied += 1;
+        if (verified && current.prVerifiedLabelAppliedAt === null && opts.github.addLabels) {
+          await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [
+            opts.verifiedLabel,
+          ]);
+          markVerifiedLabelApplied(attempt.id, db);
+          opts.logger.info(
+            { ...logContext(current), pr_number: prNumber, label: opts.verifiedLabel },
+            'Applied verified label to pull request'
+          );
+          result.verifiedLabelsApplied += 1;
+        } else if (
+          !verified &&
+          current.prVerifiedLabelAppliedAt !== null &&
+          opts.github.removeLabel
+        ) {
+          await opts.github.removeLabel(
+            task.repoOwner,
+            task.repoName,
+            prNumber,
+            opts.verifiedLabel
+          );
+          clearVerifiedLabelApplied(attempt.id, db);
+          opts.logger.info(
+            { ...logContext(current), pr_number: prNumber, label: opts.verifiedLabel },
+            'Removed verified label from pull request'
+          );
+          result.verifiedLabelsRemoved += 1;
+        }
       } catch (error: unknown) {
         opts.logger.warn(
-          { ...logContext(attempt), err: error, pr_number: prNumber, label: opts.verifiedLabel },
+          { ...logContext(current), err: error, pr_number: prNumber, label: opts.verifiedLabel },
           isLookupDeferred(error)
-            ? 'Verified label application failed transiently; retrying on the next poll'
-            : 'Verified label application failed; retrying on the next poll'
+            ? 'Verified label update failed transiently; retrying on the next poll'
+            : 'Verified label update failed; retrying on the next poll'
         );
         result.failed += 1;
       }

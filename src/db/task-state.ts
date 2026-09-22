@@ -798,7 +798,7 @@ export function findCompletedAttemptsWithTrackedPullRequests(
     .all();
 }
 
-export function findVerifiedAttemptsAwaitingLabel(
+export function findSucceededAttemptsWithPullRequests(
   db: DbExecutor = getDb()
 ): Array<{ attempt: Attempt; task: Task }> {
   return db
@@ -809,8 +809,7 @@ export function findVerifiedAttemptsAwaitingLabel(
       and(
         eq(attempts.state, 'completed'),
         eq(attempts.outcome, 'succeeded'),
-        isNotNull(attempts.prNumber),
-        isNull(attempts.prVerifiedLabelAppliedAt)
+        isNotNull(attempts.prNumber)
       )
     )
     .orderBy(asc(attempts.createdAt), asc(attempts.id))
@@ -823,6 +822,19 @@ export function markVerifiedLabelApplied(attemptId: number, db: DbExecutor = get
   const result = db
     .update(attempts)
     .set({ prVerifiedLabelAppliedAt: now, updatedAt: now })
+    .where(eq(attempts.id, attemptId))
+    .run();
+  if (result.changes !== 1) {
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function clearVerifiedLabelApplied(attemptId: number, db: DbExecutor = getDb()): Attempt {
+  requireAttempt(attemptId, db);
+  const result = db
+    .update(attempts)
+    .set({ prVerifiedLabelAppliedAt: null, updatedAt: Date.now() })
     .where(eq(attempts.id, attemptId))
     .run();
   if (result.changes !== 1) {

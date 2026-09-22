@@ -425,11 +425,14 @@ can be triggered with:
 pnpm demo:verification --attempt <id>          # append [--rerun] to re-execute even after a recorded result
 ```
 
-Once independent verification passes and the attempt completes as `succeeded`,
-the tracker adds `GITHUB_VERIFIED_LABEL` (default `devin-verified`) to the
-remediation PR. Application is idempotent and retried on each tracking poll
-until it succeeds; it requires the token to have issues write permission on the
-fork. Set `GITHUB_VERIFIED_LABEL` to an empty value to disable labelling.
+`GITHUB_VERIFIED_LABEL` (default `devin-verified`) tracks the current PR head's
+verification state: the tracker adds the label to the remediation PR when the
+attempt is `completed`/`succeeded` and the current head has a passed independent
+verification, and removes it again if the PR later advances to a head that has
+not been verified. Both operations are idempotent and retried on each tracking
+poll until they succeed; they require the token to have issues write permission
+on the fork. Set `GITHUB_VERIFIED_LABEL` to an empty value to disable
+labelling.
 
 ### Observability / reporting (Issue #15)
 

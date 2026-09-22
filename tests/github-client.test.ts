@@ -122,6 +122,44 @@ describe('GitHubClient', () => {
     expect(error).toMatchObject({ status: 403, method: 'POST' });
   });
 
+  it('deletes a label via the issue labels endpoint with an encoded name', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    await client.removeLabel('owner', 'repo', 11, 'devin verified');
+
+    const [url, init] = fetchFn.mock.calls[0] ?? [];
+    expect(url).toBe('https://api.github.com/repos/owner/repo/issues/11/labels/devin%20verified');
+    expect(init?.method).toBe('DELETE');
+    expect((init?.headers as Record<string, string>)['Authorization']).toBe('Bearer test-token');
+  });
+
+  it('swallows a 404 when removing an already-absent label', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('Not Found', { status: 404 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    await expect(
+      client.removeLabel('owner', 'repo', 11, 'devin-verified')
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws GitHubApiError with method DELETE for other removeLabel failures', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('oops', { status: 500 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client
+      .removeLabel('owner', 'repo', 11, 'devin-verified')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(error).toMatchObject({ status: 500, method: 'DELETE' });
+  });
+
   it('fetches a single issue by number', async () => {
     const fetchFn = vi.fn<typeof fetch>(() =>
       Promise.resolve(

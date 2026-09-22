@@ -114,7 +114,7 @@ export class GitHubClient {
 
   private async request(
     path: string,
-    init: { method?: 'GET' | 'POST'; body?: unknown } = {}
+    init: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown } = {}
   ): Promise<unknown> {
     const method = init.method ?? 'GET';
     const headers: Record<string, string> = {
@@ -155,6 +155,22 @@ export class GitHubClient {
   ): Promise<void> {
     const path = `/repos/${owner}/${repo}/issues/${String(issueNumber)}/labels`;
     await this.request(path, { method: 'POST', body: { labels } });
+  }
+
+  async removeLabel(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    label: string
+  ): Promise<void> {
+    const path = `/repos/${owner}/${repo}/issues/${String(issueNumber)}/labels/${encodeURIComponent(label)}`;
+    try {
+      await this.request(path, { method: 'DELETE' });
+    } catch (error: unknown) {
+      // A 404 means the label is already absent; removal is idempotent.
+      if (error instanceof GitHubApiError && error.status === 404) return;
+      throw error;
+    }
   }
 
   async getIssue(owner: string, repo: string, issueNumber: number): Promise<GitHubIssue> {

@@ -11,8 +11,10 @@ import {
   markDispatching,
   markRunning,
   markSessionCreated,
+  markVerifiedLabelApplied,
   markVerifying,
   recordPullRequest,
+  recordVerification,
   listVerifications,
   setVerificationCandidate,
   upsertTask,
@@ -65,9 +67,14 @@ function activeAttempt(issueNumber = 7) {
   };
 }
 
+const VERIFIED_SPEC_SHA = hashVerificationSpec('bash', 'echo ok');
+
 // completeAttempt refuses 'succeeded' and completeVerifiedAttempt needs
-// verification rows, so tests seed the terminal row directly.
-function completedVerifiedAttempt(issueNumber = 40) {
+// verification rows, so tests seed the terminal row directly. The approved spec
+// and a decisive passed command row for the current head make the attempt
+// project VERIFIED; pass `superseded: true` to advance prHeadSha past the
+// verified head afterwards.
+function completedVerifiedAttempt(issueNumber = 40, opts: { superseded?: boolean } = {}) {
   const { task, attempt } = activeAttempt(issueNumber);
   markRunning(attempt.id);
   recordPullRequest(attempt.id, {
@@ -77,6 +84,21 @@ function completedVerifiedAttempt(issueNumber = 40) {
     prHeadSha: 'sha-1',
   });
   markVerifying(attempt.id);
+  setVerificationCandidate(
+    attempt.id,
+    { shell: 'bash', script: 'echo ok' },
+    'issue_verification_section'
+  );
+  approveVerificationSpec(attempt.id, VERIFIED_SPEC_SHA, 'operator');
+  recordVerification({
+    attemptId: attempt.id,
+    headSha: 'sha-1',
+    kind: 'command',
+    status: 'passed',
+    specShell: 'bash',
+    specScript: 'echo ok',
+    specSha256: VERIFIED_SPEC_SHA,
+  });
   const rawDb = getRawDb();
   if (!rawDb) throw new Error('Raw database was not initialized');
   rawDb
@@ -84,6 +106,14 @@ function completedVerifiedAttempt(issueNumber = 40) {
       "UPDATE attempts SET state = 'completed', outcome = 'succeeded', completed_at = ?, updated_at = ? WHERE id = ?"
     )
     .run(Date.now(), Date.now(), attempt.id);
+  if (opts.superseded) {
+    recordPullRequest(attempt.id, {
+      prUrl: 'https://github.com/owner/repo/pull/12',
+      prNumber: 12,
+      prState: 'open',
+      prHeadSha: 'sha-2',
+    });
+  }
   const completed = getAttempt(attempt.id);
   if (!completed) throw new Error('attempt missing');
   return { task, attempt: completed };
@@ -404,6 +434,90 @@ describe('session tracker', () => {
     expect(second.verifiedLabelsApplied).toBe(0);
   });
 
+  it('does not label a succeeded attempt whose PR head is not verified', async () => {
+    const { attempt } = completedVerifiedAttempt(44, { superseded: true });
+    const addLabels = vi.fn().mockResolvedValue(undefined);
+    const removeLabel = vi.fn().mockResolvedValue(undefined);
+
+    const result = await runTrackingOnce({
+      devin: { getSession: vi.fn() },
+      github: {
+        getPullRequest: vi.fn().mockResolvedValue(pullRequest({ head: { sha: 'sha-2' } })),
+        addLabels,
+        removeLabel,
+      },
+      logger: logger(),
+      staleWarnMs: 0,
+      verifiedLabel: 'devin-verified',
+    });
+
+    expect(addLabels).not.toHaveBeenCalled();
+    expect(removeLabel).not.toHaveBeenCalled();
+    expect(result.verifiedLabelsApplied).toBe(0);
+    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+  });
+
+  it('removes the label from a labelled attempt whose PR head was superseded', async () => {
+    const { attempt } = completedVerifiedAttempt(45, { superseded: true });
+    markVerifiedLabelApplied(attempt.id);
+    const addLabels = vi.fn().mockResolvedValue(undefined);
+    const removeLabel = vi.fn().mockResolvedValue(undefined);
+    const opts = {
+      devin: { getSession: vi.fn() },
+      github: {
+        getPullRequest: vi.fn().mockResolvedValue(pullRequest({ head: { sha: 'sha-2' } })),
+        addLabels,
+        removeLabel,
+      },
+      logger: logger(),
+      staleWarnMs: 0,
+      verifiedLabel: 'devin-verified',
+    };
+
+    const result = await runTrackingOnce(opts);
+
+    expect(removeLabel).toHaveBeenCalledTimes(1);
+    expect(removeLabel).toHaveBeenCalledWith('owner', 'repo', 12, 'devin-verified');
+    expect(addLabels).not.toHaveBeenCalled();
+    expect(result.verifiedLabelsRemoved).toBe(1);
+    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+
+    const second = await runTrackingOnce(opts);
+    expect(removeLabel).toHaveBeenCalledTimes(1);
+    expect(addLabels).not.toHaveBeenCalled();
+    expect(second.verifiedLabelsRemoved).toBe(0);
+  });
+
+  it('keeps the marker set and retries after a label removal failure', async () => {
+    const { attempt } = completedVerifiedAttempt(46, { superseded: true });
+    markVerifiedLabelApplied(attempt.id);
+    const removeLabel = vi
+      .fn()
+      .mockRejectedValueOnce(new GitHubApiError(500, 'DELETE', '/issues/12/labels/x', 'oops'))
+      .mockResolvedValueOnce(undefined);
+    const opts = {
+      devin: { getSession: vi.fn() },
+      github: {
+        getPullRequest: vi.fn().mockResolvedValue(pullRequest({ head: { sha: 'sha-2' } })),
+        removeLabel,
+      },
+      logger: logger(),
+      staleWarnMs: 0,
+      verifiedLabel: 'devin-verified',
+    };
+
+    const first = await runTrackingOnce(opts);
+
+    expect(first.verifiedLabelsRemoved).toBe(0);
+    expect(first.failed).toBe(1);
+    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).not.toBeNull();
+
+    const second = await runTrackingOnce(opts);
+    expect(removeLabel).toHaveBeenCalledTimes(2);
+    expect(second.verifiedLabelsRemoved).toBe(1);
+    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+  });
+
   it('leaves the marker unset and retries after a label application failure', async () => {
     const { attempt } = completedVerifiedAttempt(41);
     const addLabels = vi
@@ -452,6 +566,7 @@ describe('session tracker', () => {
       verifiedLabel: 'devin-verified',
     });
     expect(unsupported.verifiedLabelsApplied).toBe(0);
+    expect(unsupported.verifiedLabelsRemoved).toBe(0);
     expect(unsupported.failed).toBe(0);
   });
 
