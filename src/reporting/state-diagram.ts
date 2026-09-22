@@ -23,6 +23,7 @@ export const STATE_EDGES: StateEdge[] = [
   { from: 'DISPATCHING', to: 'QUEUED', label: 'Devin 4xx / transient error' },
   { from: 'DISPATCHING', to: 'RUNNING', label: 'session created / adopted' },
   { from: 'RUNNING', to: 'PR_OPEN', label: 'session finished, PR verified' },
+  { from: 'RUNNING', to: 'VERIFYING', label: 'PR verified, issue already had a spec candidate' },
   { from: 'PR_OPEN', to: 'VERIFYING', label: 'verification spec proposed' },
   { from: 'VERIFYING', to: 'CI_PENDING', label: 'GitHub checks running' },
   { from: 'CI_PENDING', to: 'VERIFYING', label: 'checks finished' },

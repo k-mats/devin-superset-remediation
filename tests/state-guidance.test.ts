@@ -32,6 +32,11 @@ describe('stateGuidance', () => {
     );
     expect(stateGuidance('QUEUED', 'attempt_pending', noTracking).next).toBe('wait');
 
+    expect(stateGuidance('CI_PENDING', 'github_checks_pending', noVerification).next).toBe(
+      'operator'
+    );
+    expect(stateGuidance('QUEUED', 'task_without_attempt').next).toBe('operator');
+
     const noDispatch = { ...ALL_WORKERS_ENABLED, dispatch: false };
     expect(stateGuidance('QUEUED', 'attempt_pending', noDispatch).next).toBe('operator');
     expect(stateGuidance('VERIFYING', 'spec_pending_approval', noDispatch).next).toBe('operator');

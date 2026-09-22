@@ -41,6 +41,10 @@ const BY_REASON = {
     requires: ['dispatch'],
     text: 'Queued. The dispatch poller (DEVIN_DISPATCH_INTERVAL_MS) will re-check the issue and create a Devin session on its next pass.',
   },
+  task_without_attempt: {
+    next: 'operator',
+    text: 'The task row exists but has no attempt, so the dispatch poller cannot pick it up. Intake creates the missing attempt the next time it sees the issue with the trigger label (GitHub polling or webhook); if intake is not running, re-label the issue once intake is enabled or seed the attempt manually.',
+  },
   attempt_dispatching: {
     next: 'wait',
     requires: ['reconcile'],
@@ -71,7 +75,7 @@ const BY_REASON = {
   },
   github_checks_pending: {
     next: 'wait',
-    requires: ['tracking'],
+    requires: ['tracking', 'verification'],
     text: 'GitHub check runs on the PR head are still running. Nothing to do until they finish.',
   },
   spec_pending_approval: {
