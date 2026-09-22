@@ -50,8 +50,8 @@ const BY_REASON = {
   },
   attempt_dispatching: {
     next: 'wait',
-    requires: ['reconcile'],
-    text: 'A Devin session is being created. Normally this lasts seconds. If it stays here longer than DEVIN_DISPATCH_GRACE_MS with no session link, reconciliation is looking the session up; if the logs keep reporting no_match, run attempt:requeue (see docs/operations.md).',
+    requires: ['dispatch'],
+    text: 'A Devin session is being created by the dispatch poller. Normally this lasts seconds. If it stays here longer than DEVIN_DISPATCH_GRACE_MS with no session link, the reconciliation poller (DEVIN_RECONCILE_INTERVAL_MS) looks the session up by correlation tag; if the logs keep reporting no_match, run attempt:requeue (see docs/operations.md).',
   },
   attempt_session_created: {
     next: 'wait',
@@ -91,8 +91,9 @@ const BY_REASON = {
     text: 'Verification spec approved. The next tracking pass checks out the PR head, runs repository setup (minutes on first run) and executes the command. Use the Verification page to rerun explicitly.',
   },
   command_verification_error: {
-    next: 'operator',
-    text: 'The verification command could not be run (setup or infrastructure error, not a test failure). Inspect the evidence on the Verification page and rerun.',
+    next: 'wait',
+    requires: ['tracking', 'verification'],
+    text: 'The verification command could not run (setup or infrastructure error, not a test failure). The next tracking pass retries automatically; inspect the evidence on the Verification page or rerun explicitly if it keeps failing.',
   },
   current_head_verification_pending: {
     next: 'human',

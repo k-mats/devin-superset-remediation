@@ -136,6 +136,14 @@ describe('report routes', () => {
     expect(tasksTable).toContain('The dispatch poller');
   });
 
+  it('counts tasks without attempts on the state map', async () => {
+    upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 16, title: 'orphan' });
+    const response = await server.inject({ method: 'GET', url: '/dashboard' });
+    const html = response.payload;
+    expect(html).toContain('Tasks without attempts: 1');
+    expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied">[^]*?>2 tasks</);
+  });
+
   it('renders scripts only on the dedicated operator page', async () => {
     const response = await server.inject({
       method: 'GET',

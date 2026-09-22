@@ -232,6 +232,8 @@ export function renderDashboard(
       return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason, workers, `task-guidance-${String(task.taskId)}`)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
     })
     .join('');
+  const mapCounts: Partial<Record<NormalizedTaskState, number>> = {};
+  for (const row of report.ledger) mapCounts[row.state] = (mapCounts[row.state] ?? 0) + 1;
   const ledgerRows = report.ledger
     .map((row) => {
       const issueHref = safeHref(row.issueUrl);
@@ -312,8 +314,8 @@ section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
 <h2>Tasks (${String(report.summary.totalTasks)})</h2>
 <details class="state-map-details" data-persist="state-map"><summary>State map — where tasks are in the lifecycle</summary>
-<div class="state-map">${renderStateDiagram(report.summary.byState)}</div>
-<p class="muted">Top row is the happy path left to right; dashed boxes are terminal. Box colours match the State badges below (blue Wait, yellow Action needed, red Needs human, green Terminal); shaded boxes contain tasks. Click "map" next to a task's state to outline its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
+<div class="state-map">${renderStateDiagram(mapCounts)}</div>
+<p class="muted">Counts cover every persisted task, including tasks without an attempt (QUEUED in the ledger). Top row is the happy path left to right; dashed boxes are terminal. Box colours match the State badges below (blue Wait, yellow Action needed, red Needs human, green Terminal); shaded boxes contain tasks. Click "map" next to a task's state to outline its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
 ${renderStateTransitionsList()}
 </details>
 <p class="muted">The State column says who moves each task forward: <span class="next next-wait">Wait</span> automation continues on its own · <span class="next next-operator">Action needed</span> an operator step (usually on the Verification page) is required · <span class="next next-human">Needs human</span> automation stopped · <span class="next next-done">Terminal</span> nothing further happens. Expand "What now?" for details.</p>
