@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { healthRoutes } from './routes/health.js';
 import { reportRoutes } from './routes/report.js';
+import type { WorkerAvailability } from './reporting/state-guidance.js';
 import { operatorVerificationRoutes } from './routes/operator-verification.js';
 import { githubWebhookRoutes } from './routes/github-webhook.js';
 import { closeDb, runMigrations } from './db/client.js';
@@ -33,14 +34,15 @@ export async function buildServer() {
   };
 
   await server.register(healthRoutes);
-  await server.register(reportRoutes, {
-    workers: {
-      dispatch: config.devinDispatchIntervalMs > 0,
-      tracking: config.devinTrackingIntervalMs > 0,
-      reconcile: config.devinReconcileIntervalMs > 0,
-      verification: config.verificationEnabled,
-    },
-  });
+  // Flipped to true only when the corresponding poller actually starts below;
+  // the dashboard reads this object per request.
+  const workers: WorkerAvailability = {
+    dispatch: false,
+    tracking: false,
+    reconcile: false,
+    verification: false,
+  };
+  await server.register(reportRoutes, { workers });
   await server.register(operatorVerificationRoutes, {
     getGitHubClient: () => (config.githubToken ? getGitHubClient() : undefined),
     verification: config.verificationEnabled ? verificationOptionsFromConfig(config) : undefined,
@@ -126,6 +128,7 @@ export async function buildServer() {
       stopDispatchPoller = () => {
         return poller.stop();
       };
+      workers.dispatch = true;
     }
   }
 
@@ -160,6 +163,8 @@ export async function buildServer() {
           : undefined,
       });
       stopTrackingPoller = () => poller.stop();
+      workers.tracking = true;
+      workers.verification = config.verificationEnabled;
     }
   }
 
@@ -183,6 +188,7 @@ export async function buildServer() {
         logger: server.log,
       });
       stopReconciliationPoller = () => poller.stop();
+      workers.reconcile = true;
     }
   }
 

@@ -22,10 +22,10 @@ export const ALL_WORKERS_ENABLED: WorkerAvailability = {
 };
 
 const WORKER_SETTING: Record<Worker, string> = {
-  dispatch: 'DEVIN_DISPATCH_INTERVAL_MS',
-  tracking: 'DEVIN_TRACKING_INTERVAL_MS',
-  reconcile: 'DEVIN_RECONCILE_INTERVAL_MS',
-  verification: 'VERIFICATION_ENABLED',
+  dispatch: 'dispatch poller: DEVIN_DISPATCH_INTERVAL_MS + GitHub/Devin credentials',
+  tracking: 'tracking poller: DEVIN_TRACKING_INTERVAL_MS + GitHub/Devin credentials',
+  reconcile: 'reconciliation poller: DEVIN_RECONCILE_INTERVAL_MS + Devin credentials',
+  verification: 'verification: VERIFICATION_ENABLED (runs inside the tracking poller)',
 };
 
 export const NEXT_ACTION_LABEL: Record<NextAction, string> = {
@@ -157,9 +157,9 @@ export function stateGuidance(
   if (base.next !== 'wait') return { next: base.next, text: base.text };
   const disabled = (base.requires ?? []).filter((worker) => !workers[worker]);
   if (disabled.length === 0) return { next: base.next, text: base.text };
-  const settings = disabled.map((worker) => WORKER_SETTING[worker]).join(', ');
+  const settings = disabled.map((worker) => WORKER_SETTING[worker]).join('; ');
   return {
     next: 'operator',
-    text: `Automation for this state is disabled in this process (${settings}), so it will not progress on its own. Enable the setting and restart, or handle the step manually. Normally: ${base.text}`,
+    text: `The automation this state depends on is not running in this process (${settings}), so it will not progress on its own. Check the startup log for the skipped/disabled worker, fix the configuration and restart, or handle the step manually. Normally: ${base.text}`,
   };
 }
