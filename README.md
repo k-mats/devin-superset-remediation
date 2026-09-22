@@ -29,8 +29,8 @@ Independent verification                 operator approves a command, orchestrat
 
 - Docker Engine 20.10+ with Docker Compose v2+ (nothing else is needed on the host).
 - A GitHub personal access token with **read/write access to Issues and
-  read access to Pull Requests** on the Superset fork (write on Issues is
-  used only to apply the `devin-verified` label).
+  read access to Pull Requests, Checks, and Commit statuses** on the Superset
+  fork (write on Issues is used only to apply the `devin-verified` label).
 - A Devin **v3 Organization API** key and your organization id
   (`DEVIN_API_KEY`, `DEVIN_ORG_ID`). The Devin organization must have access
   to the Superset fork so sessions can open pull requests against it.
@@ -154,6 +154,11 @@ in [architecture.md](architecture.md#normalized-task-state).
 - **In-flight verification is not cancelled gracefully** on `docker compose
 stop`; a mid-run verification is not reconciled across restarts.
 - **Single process, SQLite.** Designed for one orchestrator instance.
+- **Observed ACU may be unreliable.** In runs so far, `acus_consumed`
+  returned by the Devin API has appeared to be `0.0` even for sessions that
+  did real work, so the "ACU observed" values and the ACU throughput figure
+  on the dashboard may understate real consumption. The cause (API
+  behaviour vs. this service's session polling) has not been investigated.
 
 ## Further documentation
 
