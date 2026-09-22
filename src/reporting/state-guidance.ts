@@ -50,7 +50,7 @@ const BY_REASON = {
   },
   attempt_dispatching: {
     next: 'wait',
-    requires: ['dispatch'],
+    requires: ['dispatch', 'reconcile'],
     text: 'A Devin session is being created by the dispatch poller. Normally this lasts seconds. If it stays here longer than DEVIN_DISPATCH_GRACE_MS with no session link, the reconciliation poller (DEVIN_RECONCILE_INTERVAL_MS) looks the session up by correlation tag; if the logs keep reporting no_match, run attempt:requeue (see docs/operations.md).',
   },
   attempt_session_created: {

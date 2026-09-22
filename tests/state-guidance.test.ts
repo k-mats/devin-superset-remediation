@@ -46,7 +46,8 @@ describe('stateGuidance', () => {
     expect(stateGuidance('VERIFIED', 'command_verification_passed', noDispatch).next).toBe('done');
 
     const noReconcile = { ...ALL_WORKERS_ENABLED, reconcile: false };
-    expect(stateGuidance('DISPATCHING', 'attempt_dispatching', noReconcile).next).toBe('wait');
+    expect(stateGuidance('DISPATCHING', 'attempt_dispatching').next).toBe('wait');
+    expect(stateGuidance('DISPATCHING', 'attempt_dispatching', noReconcile).next).toBe('operator');
     expect(stateGuidance('DISPATCHING', 'attempt_dispatching', noDispatch).next).toBe('operator');
 
     expect(stateGuidance('VERIFYING', 'command_verification_error').next).toBe('wait');
