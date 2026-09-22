@@ -1,9 +1,4 @@
-import type {
-  LedgerAttemptEvidence,
-  LedgerVerificationEvidence,
-  Report,
-  ReportAttemptRow,
-} from './report-model.js';
+import type { LedgerAttemptEvidence, LedgerVerificationEvidence, Report } from './report-model.js';
 import {
   ALL_WORKERS_ENABLED,
   NEXT_ACTION_LABEL,
@@ -171,24 +166,6 @@ function renderAttemptHistory(history: LedgerAttemptEvidence[]): string {
   return `<details><summary>Attempt history (${String(history.length)}) / verification history</summary><ol>${history.map(renderHistoryAttempt).join('')}</ol></details>`;
 }
 
-function renderAttempt(attempt: ReportAttemptRow): string {
-  const sessionHref = safeHref(attempt.devinSessionUrl);
-  const session =
-    attempt.devinSessionUrl === null
-      ? '—'
-      : sessionHref
-        ? `<a href="${escapeHtml(sessionHref)}">session</a>`
-        : escapeHtml(attempt.devinSessionUrl);
-  const prHref = safeHref(attempt.prUrl);
-  const pr =
-    attempt.prUrl === null
-      ? '—'
-      : prHref
-        ? `<a href="${escapeHtml(prHref)}">PR${attempt.prNumber === null ? '' : ` #${String(attempt.prNumber)}`}</a> (${escapeHtml(attempt.prState ?? 'unknown')})`
-        : `${escapeHtml(attempt.prUrl)} (${escapeHtml(attempt.prState ?? 'unknown')})`;
-  return `<li>#${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} · ${escapeHtml(attempt.outcome ?? '—')} · ${session} · ${pr}</li>`;
-}
-
 export function renderDashboard(
   report: Report,
   workers: WorkerAvailability = ALL_WORKERS_ENABLED
@@ -206,43 +183,35 @@ export function renderDashboard(
         `<div class="card"><strong>${String(count)}</strong><span>${escapeHtml(String(label))} tasks</span></div>`
     )
     .join('');
-  const taskRows = report.tasks
-    .map((task) => {
-      const issueHref = safeHref(task.issueUrl);
-      const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(task.issueNumber)}</a>` : escapeHtml(task.issueUrl)} ${escapeHtml(task.title ?? '(untitled)')}`;
-      const sessionHref = safeHref(task.devinSessionUrl);
+  const mapCounts: Partial<Record<NormalizedTaskState, number>> = {};
+  for (const row of report.ledger) mapCounts[row.state] = (mapCounts[row.state] ?? 0) + 1;
+  const taskRows = report.ledger
+    .map((row) => {
+      const taskId = String(row.taskId);
+      const issueHref = safeHref(row.issueUrl);
+      const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(row.issueNumber)}</a>` : escapeHtml(row.issueUrl)} ${escapeHtml(row.title ?? '(untitled)')}`;
+      const stateCell = renderStateCell(row.state, row.reason, workers, `task-guidance-${taskId}`);
+      const evidenceOpen = `<tr class="evidence"><td colspan="8"><details data-persist="evidence-${taskId}"><summary>Evidence — why the system claims this state</summary>`;
+      const current = row.current;
+      if (current === null) {
+        return `<tr><td>${issue}</td><td>${stateCell}</td><td>—</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>${escapeHtml(formatTime(row.lastUpdatedAt))}</td></tr>${evidenceOpen}<small>discovered ${escapeHtml(formatTime(row.discoveredAt))} · no attempt yet</small></details></td></tr>`;
+      }
+      const sessionHref = safeHref(current.devinSessionUrl);
       const session =
-        task.devinSessionUrl === null
+        current.devinSessionUrl === null
           ? '—'
           : sessionHref
             ? `<a href="${escapeHtml(sessionHref)}">session</a>`
-            : escapeHtml(task.devinSessionUrl);
-      const prHref = safeHref(task.prUrl);
+            : escapeHtml(current.devinSessionUrl);
+      const prHref = safeHref(current.prUrl);
       const pr =
-        task.prUrl === null
+        current.prUrl === null
           ? '—'
           : prHref
-            ? `<a href="${escapeHtml(prHref)}">PR${task.currentAttempt.prNumber === null ? '' : ` #${String(task.currentAttempt.prNumber)}`}</a> (${escapeHtml(task.currentAttempt.prState ?? 'unknown')})`
-            : `${escapeHtml(task.prUrl)} (${escapeHtml(task.currentAttempt.prState ?? 'unknown')})`;
-      const history =
-        task.attemptCount > 1
-          ? `<details><summary>Attempt history</summary><ol>${task.attempts.map(renderAttempt).join('')}</ol></details>`
-          : '';
-      const verificationLink = `<a href="/operator/attempts/${String(task.currentAttempt.id)}/verification">Verification</a>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason, workers, `task-guidance-${String(task.taskId)}`)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
-    })
-    .join('');
-  const mapCounts: Partial<Record<NormalizedTaskState, number>> = {};
-  for (const row of report.ledger) mapCounts[row.state] = (mapCounts[row.state] ?? 0) + 1;
-  const ledgerRows = report.ledger
-    .map((row) => {
-      const issueHref = safeHref(row.issueUrl);
-      const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(row.issueNumber)}</a>` : escapeHtml(row.issueUrl)} ${escapeHtml(row.title ?? '(untitled)')}`;
-      const current = row.current;
-      if (current === null) {
-        return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers, `ledger-guidance-${String(row.taskId)}`)}</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
-      }
-      const attemptHistory = renderAttemptHistory(row.history);
+            ? `<a href="${escapeHtml(prHref)}">PR${current.prNumber === null ? '' : ` #${String(current.prNumber)}`}</a> (${escapeHtml(current.prState ?? 'unknown')})`
+            : `${escapeHtml(current.prUrl)} (${escapeHtml(current.prState ?? 'unknown')})`;
+      const verificationLink = `<a href="/operator/attempts/${String(current.attemptId)}/verification">Verification</a>`;
+      const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}`;
       const priorCommandCount = current.verification.prior.filter(
         (verification) => verification.kind === 'command'
       ).length;
@@ -257,9 +226,10 @@ export function renderDashboard(
         priorGitHubChecksCount === 0
           ? ''
           : `<small>${String(priorGitHubChecksCount)} prior run(s) for this head</small>`;
-      const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
+      const evidenceOutcome = `${outcome}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
       const timestamps = `<small>discovered ${escapeHtml(formatTime(row.discoveredAt))}<br>dispatched ${escapeHtml(formatTime(current.timestamps.dispatchedAt))}<br>session created ${escapeHtml(formatTime(current.timestamps.sessionCreatedAt))}<br>completed ${escapeHtml(formatTime(current.timestamps.completedAt))}<br>terminal ${escapeHtml(formatTime(current.timestamps.terminalAt))}<br>verified ${escapeHtml(formatTime(current.timestamps.verifiedAt))}</small>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers, `ledger-guidance-${String(row.taskId)}`)}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
+      const evidence = `<dl class="evidence-list"><dt>Devin session</dt><dd>${renderSessionEvidence(current)}</dd><dt>PR</dt><dd>${renderPrEvidence(current)}</dd><dt>Command verification</dt><dd>${renderVerificationEvidence(current.verification.command)}${commandPrior}</dd><dt>GitHub Checks</dt><dd>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</dd><dt>Approval</dt><dd>${renderApproval(current)}</dd><dt>Outcome</dt><dd>${evidenceOutcome}</dd><dt>Timestamps</dt><dd>${timestamps}</dd></dl>${renderAttemptHistory(row.history)}`;
+      return `<tr><td>${issue}</td><td>${stateCell}</td><td>${outcome}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(row.lastUpdatedAt))}</td></tr>${evidenceOpen}${evidence}</details></td></tr>`;
     })
     .join('');
   const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
@@ -295,6 +265,8 @@ a{color:#0969da}details{margin-top:.4rem}ul,ol{margin:.3rem 0;padding-left:1.3re
 .next{display:inline-block;margin-top:.3rem;padding:.1rem .45rem;border-radius:4px;font-size:.8em;font-weight:600}
 .next-wait{background:#ddf4ff;color:#0550ae}.next-operator{background:#fff8c5;color:#7d4e00}.next-human{background:#ffebe9;color:#a40e26}.next-done{background:#dafbe1;color:#1a7f37}
 .guidance summary{cursor:pointer;color:#5f6b76;font-size:.85em}.guidance p{margin:.2rem 0 0;font-size:.9em;max-width:32rem}
+tr.evidence td{background:#fbfcfd;border-top:0;padding:.25rem .5rem}
+.evidence-list{display:grid;grid-template-columns:max-content 1fr;gap:.2rem .8rem;margin:.4rem 0}.evidence-list dt{font-weight:600;color:#5f6b76}.evidence-list dd{margin:0}
 .state-map{overflow-x:auto;background:white;border:1px solid #d8dee4;border-radius:6px;padding:.5rem;margin:.5rem 0}
 .state-diagram{font:11px system-ui,sans-serif;display:block}.state-diagram .edge line{stroke:#8c959f;stroke-width:1.2}.state-diagram .edge:hover line{stroke:#0969da;stroke-width:2.5}.transitions ul{columns:2;font-size:.9em}.state-diagram #arrow path{fill:#8c959f}
 .state-diagram .state-node rect{fill:#f6f8fa;stroke-width:1.2}.state-diagram .state-node.terminal rect{stroke-dasharray:4 3}
@@ -312,19 +284,16 @@ section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor
 <p class="muted">Generated ${escapeHtml(report.context.generatedAt)} · <a href="">Refresh</a></p>
 <div class="cards">${summaryCards}</div>
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
-<h2>Tasks (${String(report.summary.totalTasks)})</h2>
+<h2>Tasks (${String(report.ledger.length)})</h2>
 <details class="state-map-details" data-persist="state-map"><summary>State map — where tasks are in the lifecycle</summary>
 <div class="state-map">${renderStateDiagram(mapCounts)}</div>
 <p class="muted">Counts cover every persisted task, including tasks without an attempt (QUEUED in the ledger). Top row is the happy path left to right; dashed boxes are terminal. Box colours match the State badges below (blue Wait, yellow Action needed, red Needs human, green Terminal); shaded boxes contain tasks. Click "map" next to a task's state to outline its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
 ${renderStateTransitionsList()}
 </details>
 <p class="muted">The State column says who moves each task forward: <span class="next next-wait">Wait</span> automation continues on its own · <span class="next next-operator">Action needed</span> an operator step (usually on the Verification page) is required · <span class="next next-human">Needs human</span> automation stopped · <span class="next next-done">Terminal</span> nothing further happens. Expand "What now?" for details.</p>
+<p class="muted">Evidence is shown for the current tracked PR head only; verification of earlier heads is listed as stale and is not evidence for the current head. Independent command verification and GitHub Checks are separate. A PR link is not evidence of success; success = VERIFIED only. ACU is shown only when observed (— = unknown, never 0).</p>
 <table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Verification</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="8">No tasks</td></tr>'}</tbody></table>
 <p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)}</p>
-<section class="collapsible"><details data-persist="ledger"><summary><h2>Remediation evidence ledger (${String(report.ledger.length)})</h2></summary>
-<p>Evidence is shown for the current tracked PR head only; verification of earlier heads is listed as stale and is not evidence for the current head. Independent command verification and GitHub Checks are separate. A PR link is not evidence of success; success = VERIFIED only. ACU is shown only when observed (— = unknown, never 0).</p>
-<table><thead><tr><th>Issue</th><th>State</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Command verification</th><th>GitHub Checks</th><th>Approval</th><th>Outcome</th><th>Timestamps</th></tr></thead><tbody>${ledgerRows || '<tr><td colspan="10">No ledger entries</td></tr>'}</tbody></table>
-</details></section>
 <section class="collapsible"><details data-persist="throughput"><summary><h2>Throughput</h2></summary>
 <table><thead><tr><th>Measure</th><th>24h</th><th>7d</th></tr></thead><tbody>${throughputRows}</tbody></table>
 <p class="muted">${String(report.summary.terminalWithoutTimestamp)} terminal task(s) have no persisted terminal timestamp and are excluded from terminal throughput / cycle time.</p>

@@ -210,7 +210,7 @@ workflow. Details and options are in
 
 | What                                                 | Where                                                                                                                                                                    |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Everything at a glance                               | <http://localhost:3000/dashboard> — summary cards per normalized state, throughput, cycle time, per-task rows, and the remediation evidence ledger                       |
+| Everything at a glance                               | <http://localhost:3000/dashboard> — summary cards per normalized state, throughput, cycle time, and a per-task table with an expandable Evidence row under each task     |
 | Machine-readable report                              | `GET /api/report` — same data as JSON, plus runtime context and a per-task remediation evidence ledger                                                                   |
 | Liveness / readiness                                 | `GET /health`, `GET /ready` (readiness includes database connectivity)                                                                                                   |
 | Task state, session, PR for one attempt              | `docker compose exec app node dist/cli/verification-show.js --attempt <id>` — prints normalized state, raw provider facts, candidate/approved spec, verification history |

@@ -87,7 +87,8 @@ describe('report routes', () => {
     expect(response.payload).toContain('QUEUED');
     expect(response.payload).toContain('attempt_pending');
     expect(response.payload).toContain('javascript:alert(1)');
-    expect(response.payload).toContain('Remediation evidence ledger');
+    expect(response.payload).toContain('Evidence — why the system claims this state');
+    expect(response.payload).toContain('data-persist="evidence-');
     expect(response.payload).toContain('123456789012');
     expect(response.payload).toContain('GitHub Checks');
     expect(response.payload).not.toContain('SECRET_SCRIPT_BODY');
@@ -100,14 +101,11 @@ describe('report routes', () => {
     const response = await server.inject({ method: 'GET', url: '/dashboard' });
     const html = response.payload;
     const tasksAt = html.indexOf('<h2>Tasks (');
-    const ledgerAt = html.indexOf('<h2>Remediation evidence ledger');
     const throughputAt = html.indexOf('<h2>Throughput</h2>');
     expect(tasksAt).toBeGreaterThan(-1);
-    expect(ledgerAt).toBeGreaterThan(tasksAt);
-    expect(throughputAt).toBeGreaterThan(ledgerAt);
-    expect(html).toContain(
-      '<details data-persist="ledger"><summary><h2>Remediation evidence ledger'
-    );
+    expect(throughputAt).toBeGreaterThan(tasksAt);
+    expect(html).not.toContain('Remediation evidence ledger');
+    expect(html).not.toContain('data-persist="ledger"');
     expect(html).toContain(
       '<details data-persist="throughput"><summary><h2>Throughput</h2></summary>'
     );
@@ -116,7 +114,7 @@ describe('report routes', () => {
     expect(html).toContain("var KEY='dashboard.open'");
     expect(html).toContain('<script>(function(){');
     expect(html).toContain('<th>Verification</th>');
-    const tasksTable = html.slice(tasksAt, ledgerAt);
+    const tasksTable = html.slice(tasksAt, throughputAt);
     expect(tasksTable).toContain(
       `<a href="/operator/attempts/${String(attemptId)}/verification">Verification</a>`
     );
@@ -141,7 +139,27 @@ describe('report routes', () => {
     const response = await server.inject({ method: 'GET', url: '/dashboard' });
     const html = response.payload;
     expect(html).toContain('Tasks without attempts: 1');
+    expect(html).toContain('<h2>Tasks (2)</h2>');
+    expect(html).toContain('>0 / 0<');
     expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied">[^]*?>2 tasks</);
+  });
+
+  it('renders attempt-less tasks inside the Tasks table without a verification link', async () => {
+    upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 17, title: 'orphan' });
+    const response = await server.inject({ method: 'GET', url: '/dashboard' });
+    const html = response.payload;
+    const tasksAt = html.indexOf('<h2>Tasks (');
+    const throughputAt = html.indexOf('<h2>Throughput</h2>');
+    const tasksTable = html.slice(tasksAt, throughputAt);
+    expect(tasksTable).toContain('task_without_attempt');
+    // the attempt-less row's Verification cell is — (Outcome —, Attempt 0 / 0, session —, PR —, Verification —)
+    expect(tasksTable).toContain('<td>—</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td>');
+    // the only verification links in the table point at the task that has an attempt
+    expect(tasksTable).toContain(`/operator/attempts/${String(attemptId)}/verification`);
+    const orphanStart = tasksTable.lastIndexOf('<tr>', tasksTable.indexOf('task_without_attempt'));
+    const orphanEnd = tasksTable.indexOf('</tr>', tasksTable.indexOf('task_without_attempt'));
+    const orphanRow = tasksTable.slice(orphanStart, orphanEnd);
+    expect(orphanRow).not.toContain('/operator/attempts/');
   });
 
   it('renders scripts only on the dedicated operator page', async () => {
