@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { DevinApiError } from '../devin/client.js';
 import type { DevinClient, SessionResponse } from '../devin/client.js';
 import { GitHubApiError } from '../github/client.js';
 import type { GitHubClient, GitHubIssue } from '../github/client.js';
@@ -24,6 +25,7 @@ export type DispatchDecision =
   | 'failed_eligibility_check'
   | 'eligibility_check_deferred'
   | 'session_create_failed'
+  | 'session_create_rejected'
   | 'session_persist_failed';
 
 export interface DispatchResult {
@@ -55,6 +57,13 @@ function isTerminalEligibilityError(error: unknown): boolean {
     error.status < 500 &&
     !error.rateLimited
   );
+}
+
+// A Devin 4xx means the request was rejected before any session was created,
+// so the claim can be released and retried on a later poll (e.g. once the
+// configuration is fixed). 5xx, timeouts and network errors are uncertain.
+function isDefinitiveCreateRejection(error: unknown): boolean {
+  return error instanceof DevinApiError && error.status >= 400 && error.status < 500;
 }
 
 export function buildSessionTags(task: Task, attempt: Attempt): string[] {
@@ -150,6 +159,19 @@ export async function dispatchAttempt(
       structured_output_required: true,
     });
   } catch (error: unknown) {
+    if (isDefinitiveCreateRejection(error)) {
+      releaseDispatchClaim(attempt.id, db);
+      opts.logger.error(
+        {
+          err: error,
+          attempt_id: attempt.id,
+          correlation_id: attempt.correlationId,
+          reason: 'session_create_rejected',
+        },
+        'Devin rejected session creation; released dispatch claim and will retry on the next poll'
+      );
+      return 'session_create_rejected';
+    }
     // A session may have been created server-side; leave the attempt in
     // 'dispatching' for the Issue #20 reconciliation pass to recover.
     opts.logger.error(
@@ -228,6 +250,7 @@ export async function runDispatchOnce(opts: DevinDispatcherOptions): Promise<Dis
     else if (decision === 'claim_lost') result.claimLost += 1;
     else if (decision === 'cancelled_ineligible') result.cancelled += 1;
     else if (decision === 'eligibility_check_deferred') result.deferred += 1;
+    else if (decision === 'session_create_rejected') result.deferred += 1;
     else result.failed += 1;
   }
 

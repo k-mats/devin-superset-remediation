@@ -388,6 +388,44 @@ describe('Devin dispatcher', () => {
     }
   );
 
+  it.each<[string, number]>([
+    ['401 unauthorized', 401],
+    ['403 forbidden', 403],
+    ['404 unknown org', 404],
+    ['422 validation', 422],
+    ['429 rate limited', 429],
+  ])(
+    'releases the claim on a definitive createSession rejection (%s) and retries next poll',
+    async (_label, status) => {
+      await intakeIssueOnce();
+      const { attempt } = pendingAttempt();
+      const devin = fakeDevin();
+      devin.createSession.mockRejectedValueOnce(
+        new DevinApiError(status, 'POST', '/organizations/wrong/sessions', 'nope')
+      );
+      const dispatchLogger = logger();
+
+      const first = await runDispatchOnce(dispatchOptions({ devin, logger: dispatchLogger }));
+      expect(first).toMatchObject({ pending: 1, dispatched: 0, deferred: 1, failed: 0 });
+      expect(getAttempt(attempt.id)).toMatchObject({
+        state: 'pending',
+        dispatchedAt: null,
+        devinSessionId: null,
+      });
+      expect(dispatchLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ attempt_id: attempt.id, reason: 'session_create_rejected' }),
+        'Devin rejected session creation; released dispatch claim and will retry on the next poll'
+      );
+
+      // Configuration fixed: the same attempt is dispatched on the next pass.
+      const second = await runDispatchOnce(dispatchOptions({ devin }));
+      expect(second).toMatchObject({ pending: 1, dispatched: 1 });
+      expect(devin.createSession).toHaveBeenCalledTimes(2);
+      expect(getAttempt(attempt.id)).toMatchObject({ state: 'session_created' });
+      expect(listAttempts(attempt.taskId)).toHaveLength(1);
+    }
+  );
+
   it('does not dispatch a task whose attempt history is completed', async () => {
     const task = upsertTask({ ...identity, issueNumber: 7 });
     const old = createAttempt(task.id);

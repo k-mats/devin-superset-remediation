@@ -290,10 +290,14 @@ completed with outcome `failed` and reason `eligibility_check_failed:
 <message>`. Transient revalidation failures (5xx, 429, 403 rate limits,
 network/timeout, or
 parse errors) instead release the claim back to `pending` and the attempt
-is retried on the next poll — retry caps are owned by Issue #21. If
-`createSession` fails or times out, the attempt is intentionally left in
-`dispatching` — a session may exist server-side, and uncertain-dispatch
-reconciliation (Issue #20, below) owns recovery.
+is retried on the next poll — retry caps are owned by Issue #21. If Devin
+rejects `createSession` with a 4xx (bad API key, wrong `DEVIN_ORG_ID`,
+validation, rate limit), no session exists, so the claim is released back to
+`pending` and retried on the next poll (`session_create_rejected`, counted as
+`deferred`); fix the configuration and the attempt proceeds on its own. If
+`createSession` fails uncertainly (5xx, timeout, network error), the attempt
+is intentionally left in `dispatching` — a session may exist server-side, and
+uncertain-dispatch reconciliation (Issue #20, below) owns recovery.
 
 Migration `0002` reconciles legacy data before creating the partial index:
 tasks with multiple active attempts keep the newest active row (preferring
@@ -342,12 +346,11 @@ Reconciliation requires only `DEVIN_API_KEY` and `DEVIN_ORG_ID`.
 `DEVIN_RECONCILE_INTERVAL_MS` defaults to 60000 milliseconds; set it to `0`
 to disable. The poller runs once at startup and then on the interval.
 
-If `createSession` failed before any session was created (for example a
-misconfigured `DEVIN_ORG_ID` or API key — the dispatch log shows `Devin
-session creation failed; attempt left in dispatching state` and every
-reconciliation pass reports `no_match`), the attempt stays `DISPATCHING` on
-the dashboard indefinitely and intake skips the issue (`existing_attempt`).
-Recovery is an explicit operator step after fixing the configuration:
+If an attempt is stuck in `dispatching` without a session and reconciliation
+keeps reporting `no_match` (an uncertain failure whose session was in fact
+never created, or a row left behind by a version that did not release 4xx
+rejections), the dashboard shows `DISPATCHING` indefinitely and intake skips
+the issue (`existing_attempt`). Recovery is an explicit operator step:
 
 ```bash
 pnpm attempt:requeue --attempt <id>
