@@ -12,7 +12,7 @@ import {
 } from './state-guidance.js';
 import type { NormalizedTaskState } from '../tracking/normalized-task-state.js';
 import { escapeHtml } from './html.js';
-import { renderStateDiagram, renderStateTransitionsList } from './state-diagram.js';
+import { renderStateDiagram, renderStateTransitionsList, stateLink } from './state-diagram.js';
 
 export function safeHref(url: string | null): string | null {
   if (url === null) return null;
@@ -109,13 +109,36 @@ function renderApproval(attempt: LedgerAttemptEvidence): string {
   return `${escapeHtml(approval.status)}${spec}${link}`;
 }
 
+/**
+ * Static, data-free client script: remembers which <details data-persist> are open across
+ * the 30s meta refresh, and turns state links into an in-place highlight: the page only scrolls
+ * (to the State map heading) when the diagram is not already fully visible.
+ */
+const DASHBOARD_SCRIPT = `(function(){
+var KEY='dashboard.open';
+var open={};
+try{open=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){}
+var details=document.querySelectorAll('details[data-persist]');
+for(var i=0;i<details.length;i++){var d=details[i];var k=d.getAttribute('data-persist');if(k in open)d.open=!!open[k];
+d.addEventListener('toggle',function(ev){var el=ev.target;var key=el.getAttribute('data-persist');if(el.open)open[key]=true;else delete open[key];try{localStorage.setItem(KEY,JSON.stringify(open))}catch(e){}})}
+function select(state){var nodes=document.querySelectorAll('.state-node.selected');for(var j=0;j<nodes.length;j++)nodes[j].classList.remove('selected');
+var node=document.getElementById('state-'+state);if(!node)return;node.classList.add('selected');
+var map=document.querySelector('details[data-persist="state-map"]');if(map){if(!map.open)map.open=true;
+var svg=map.querySelector('svg');var top=map.getBoundingClientRect().top;var bottom=(svg||map).getBoundingClientRect().bottom;
+if(top<0||bottom>innerHeight)map.scrollIntoView({block:'start'})}
+history.replaceState(null,'','#state-'+state)}
+document.addEventListener('click',function(ev){var a=ev.target.closest('a.state-link');if(!a)return;ev.preventDefault();select(a.getAttribute('data-state'))});
+if(location.hash.indexOf('#state-')===0)select(location.hash.slice(7));
+})();`;
+
 function renderStateCell(
   state: NormalizedTaskState,
   reason: string,
-  workers: WorkerAvailability
+  workers: WorkerAvailability,
+  persistKey: string
 ): string {
   const guidance = stateGuidance(state, reason, workers);
-  return `<strong>${escapeHtml(state)}</strong><small>${escapeHtml(reason)} · <a href="#state-${escapeHtml(state)}" title="Show this state on the state map">map</a></small><span class="next next-${guidance.next}" title="${escapeHtml(guidance.text)}">${escapeHtml(NEXT_ACTION_LABEL[guidance.next])}</span><details class="guidance"><summary>What now?</summary><p>${escapeHtml(guidance.text)}</p></details>`;
+  return `<strong>${escapeHtml(state)}</strong><small>${escapeHtml(reason)} · ${stateLink(state, 'map', 'Highlight this state on the state map')}</small><span class="next next-${guidance.next}" title="${escapeHtml(guidance.text)}">${escapeHtml(NEXT_ACTION_LABEL[guidance.next])}</span><details class="guidance" data-persist="${escapeHtml(persistKey)}"><summary>What now?</summary><p>${escapeHtml(guidance.text)}</p></details>`;
 }
 
 function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
@@ -206,7 +229,7 @@ export function renderDashboard(
           ? `<details><summary>Attempt history</summary><ol>${task.attempts.map(renderAttempt).join('')}</ol></details>`
           : '';
       const verificationLink = `<a href="/operator/attempts/${String(task.currentAttempt.id)}/verification">Verification</a>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason, workers)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
+      return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason, workers, `task-guidance-${String(task.taskId)}`)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
     })
     .join('');
   const ledgerRows = report.ledger
@@ -215,7 +238,7 @@ export function renderDashboard(
       const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(row.issueNumber)}</a>` : escapeHtml(row.issueUrl)} ${escapeHtml(row.title ?? '(untitled)')}`;
       const current = row.current;
       if (current === null) {
-        return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers)}</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
+        return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers, `ledger-guidance-${String(row.taskId)}`)}</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
       }
       const attemptHistory = renderAttemptHistory(row.history);
       const priorCommandCount = current.verification.prior.filter(
@@ -234,7 +257,7 @@ export function renderDashboard(
           : `<small>${String(priorGitHubChecksCount)} prior run(s) for this head</small>`;
       const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
       const timestamps = `<small>discovered ${escapeHtml(formatTime(row.discoveredAt))}<br>dispatched ${escapeHtml(formatTime(current.timestamps.dispatchedAt))}<br>session created ${escapeHtml(formatTime(current.timestamps.sessionCreatedAt))}<br>completed ${escapeHtml(formatTime(current.timestamps.completedAt))}<br>terminal ${escapeHtml(formatTime(current.timestamps.terminalAt))}<br>verified ${escapeHtml(formatTime(current.timestamps.verifiedAt))}</small>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers)}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
+      return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers, `ledger-guidance-${String(row.taskId)}`)}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
     })
     .join('');
   const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
@@ -272,9 +295,10 @@ a{color:#0969da}details{margin-top:.4rem}ul,ol{margin:.3rem 0;padding-left:1.3re
 .guidance summary{cursor:pointer;color:#5f6b76;font-size:.85em}.guidance p{margin:.2rem 0 0;font-size:.9em;max-width:32rem}
 .state-map{overflow-x:auto;background:white;border:1px solid #d8dee4;border-radius:6px;padding:.5rem;margin:.5rem 0}
 .state-diagram{font:11px system-ui,sans-serif;display:block}.state-diagram .edge line{stroke:#8c959f;stroke-width:1.2}.state-diagram .edge:hover line{stroke:#0969da;stroke-width:2.5}.transitions ul{columns:2;font-size:.9em}.state-diagram #arrow path{fill:#8c959f}
-.state-diagram .state-node rect{fill:#f6f8fa;stroke:#8c959f;stroke-width:1.2}.state-diagram .state-node.kind-success rect{stroke:#1a7f37}.state-diagram .state-node.kind-terminal rect{stroke-dasharray:4 3}
-.state-diagram .state-node.occupied rect{fill:#ddf4ff;stroke:#0969da;stroke-width:2}.state-diagram .state-node.kind-success.occupied rect{fill:#dafbe1;stroke:#1a7f37}.state-diagram .state-node.kind-terminal.occupied rect{fill:#fff8c5;stroke:#9a6700}
-.state-diagram .state-node{scroll-margin-top:1.5rem}.state-diagram .state-node:target rect{stroke:#cf222e;stroke-width:3;filter:drop-shadow(0 0 4px #cf222e)}.state-diagram .state-node:target .name{fill:#cf222e}
+.state-diagram .state-node rect{fill:#f6f8fa;stroke-width:1.2}.state-diagram .state-node.terminal rect{stroke-dasharray:4 3}
+.state-diagram .next-wait rect{stroke:#0969da}.state-diagram .next-operator rect{stroke:#9a6700}.state-diagram .next-human rect{stroke:#cf222e}.state-diagram .next-done rect{stroke:#1a7f37}
+.state-diagram .occupied rect{stroke-width:2}.state-diagram .next-wait.occupied rect{fill:#ddf4ff}.state-diagram .next-operator.occupied rect{fill:#fff8c5}.state-diagram .next-human.occupied rect{fill:#ffebe9}.state-diagram .next-done.occupied rect{fill:#dafbe1}
+.state-diagram .state-node.selected rect{stroke:#18212b;stroke-width:3;filter:drop-shadow(0 0 4px #18212b)}.state-diagram .state-node.selected .name{text-decoration:underline}
 .state-diagram text{text-anchor:middle}.state-diagram .name{font-weight:700;fill:#18212b}.state-diagram .count{fill:#5f6b76;font-size:10px}
 .state-diagram .state-node:not(.occupied) .count{fill:#b1b8bf}
 section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor:pointer}section.collapsible>details>summary h2{display:inline;margin:0}
@@ -287,22 +311,24 @@ section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor
 <div class="cards">${summaryCards}</div>
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
 <h2>Tasks (${String(report.summary.totalTasks)})</h2>
-<details class="state-map-details" open><summary>State map — where tasks are in the lifecycle</summary>
+<details class="state-map-details" data-persist="state-map"><summary>State map — where tasks are in the lifecycle</summary>
 <div class="state-map">${renderStateDiagram(report.summary.byState)}</div>
-<p class="muted">Top row is the happy path left to right; dashed boxes are terminal. Shaded boxes contain tasks. Click "map" next to a task's state to highlight its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
+<p class="muted">Top row is the happy path left to right; dashed boxes are terminal. Box colours match the State badges below (blue Wait, yellow Action needed, red Needs human, green Terminal); shaded boxes contain tasks. Click "map" next to a task's state to outline its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
 ${renderStateTransitionsList()}
 </details>
 <p class="muted">The State column says who moves each task forward: <span class="next next-wait">Wait</span> automation continues on its own · <span class="next next-operator">Action needed</span> an operator step (usually on the Verification page) is required · <span class="next next-human">Needs human</span> automation stopped · <span class="next next-done">Terminal</span> nothing further happens. Expand "What now?" for details.</p>
 <table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Verification</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="8">No tasks</td></tr>'}</tbody></table>
 <p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)}</p>
-<section class="collapsible"><details><summary><h2>Remediation evidence ledger (${String(report.ledger.length)})</h2></summary>
+<section class="collapsible"><details data-persist="ledger"><summary><h2>Remediation evidence ledger (${String(report.ledger.length)})</h2></summary>
 <p>Evidence is shown for the current tracked PR head only; verification of earlier heads is listed as stale and is not evidence for the current head. Independent command verification and GitHub Checks are separate. A PR link is not evidence of success; success = VERIFIED only. ACU is shown only when observed (— = unknown, never 0).</p>
 <table><thead><tr><th>Issue</th><th>State</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Command verification</th><th>GitHub Checks</th><th>Approval</th><th>Outcome</th><th>Timestamps</th></tr></thead><tbody>${ledgerRows || '<tr><td colspan="10">No ledger entries</td></tr>'}</tbody></table>
 </details></section>
-<section class="collapsible"><details><summary><h2>Throughput</h2></summary>
+<section class="collapsible"><details data-persist="throughput"><summary><h2>Throughput</h2></summary>
 <table><thead><tr><th>Measure</th><th>24h</th><th>7d</th></tr></thead><tbody>${throughputRows}</tbody></table>
 <p class="muted">${String(report.summary.terminalWithoutTimestamp)} terminal task(s) have no persisted terminal timestamp and are excluded from terminal throughput / cycle time.</p>
 <p>Median intake→terminal cycle time (all historical terminal attempts, n=${String(report.cycleTime.sampleSize)}): ${escapeHtml(formatDuration(report.cycleTime.medianMsIntakeToTerminal))}</p>
 </details></section>
-</main></body></html>`;
+</main>
+<script>${DASHBOARD_SCRIPT}</script>
+</body></html>`;
 }

@@ -3,13 +3,14 @@ import {
   type NormalizedTaskState,
 } from '../tracking/normalized-task-state.js';
 import { escapeHtml } from './html.js';
+import { stateGuidance } from './state-guidance.js';
 
 /**
- * Normalized task-state map rendered as inline SVG (no client-side scripts).
+ * Normalized task-state map rendered as inline SVG (the SVG itself carries no script).
  * Edges mirror how `deriveTaskState` moves between values as the raw attempt
  * state machine (architecture.md) advances; each node carries the number of
- * tasks currently in that state and can be highlighted via the URL fragment
- * (`#state-VERIFYING`), which the Tasks table links to.
+ * tasks currently in that state, is coloured like the matching State badge, and
+ * can be highlighted by the dashboard's `.state-link` anchors (`#state-VERIFYING`).
  */
 
 export interface StateEdge {
@@ -62,20 +63,23 @@ const LAYOUT: Record<NormalizedTaskState, [number, number]> = {
   NEEDS_HUMAN: [3, 2],
 };
 
-const KIND: Record<NormalizedTaskState, 'active' | 'success' | 'terminal'> = {
-  QUEUED: 'active',
-  DISPATCHING: 'active',
-  RUNNING: 'active',
-  PR_OPEN: 'active',
-  CI_PENDING: 'active',
-  VERIFYING: 'active',
-  VERIFICATION_FAILED: 'active',
-  VERIFIED: 'success',
-  NEEDS_HUMAN: 'terminal',
-  NO_ACTION: 'terminal',
-  FAILED: 'terminal',
-  CANCELLED: 'terminal',
-};
+const TERMINAL: ReadonlySet<NormalizedTaskState> = new Set([
+  'VERIFIED',
+  'NEEDS_HUMAN',
+  'NO_ACTION',
+  'FAILED',
+  'CANCELLED',
+]);
+
+/** Anchor link that highlights a node on the map without scrolling (see dashboard script). */
+export function stateLink(
+  state: NormalizedTaskState,
+  text: string = state,
+  title?: string
+): string {
+  const titleAttr = title === undefined ? '' : ` title="${escapeHtml(title)}"`;
+  return `<a href="#state-${state}" class="state-link" data-state="${state}"${titleAttr}>${escapeHtml(text)}</a>`;
+}
 
 interface Point {
   x: number;
@@ -126,17 +130,18 @@ function renderNode(state: NormalizedTaskState, count: number): string {
   const [col, row] = LAYOUT[state];
   const x = PAD + col * COL;
   const y = PAD + row * ROW;
-  const cls = `state-node kind-${KIND[state]}${count > 0 ? ' occupied' : ''}`;
+  // Same colour as the State column badge: the per-state default guidance decides who moves it.
+  const next = stateGuidance(state, '').next;
+  const cls = `state-node next-${next}${TERMINAL.has(state) ? ' terminal' : ''}${count > 0 ? ' occupied' : ''}`;
   return `<g id="state-${state}" class="${cls}"><title>${escapeHtml(`${state}: ${String(count)} task(s)`)}</title><rect x="${String(x)}" y="${String(y)}" width="${String(NODE_W)}" height="${String(NODE_H)}" rx="6"/><text class="name" x="${String(x + NODE_W / 2)}" y="${String(y + 19)}">${escapeHtml(state)}</text><text class="count" x="${String(x + NODE_W / 2)}" y="${String(y + 36)}">${String(count)} task${count === 1 ? '' : 's'}</text></g>`;
 }
 
 /** Text legend for the arrows, in a definition list so the diagram itself stays readable. */
 export function renderStateTransitionsList(): string {
   const items = STATE_EDGES.map(
-    (edge) =>
-      `<li><a href="#state-${edge.from}">${escapeHtml(edge.from)}</a> → <a href="#state-${edge.to}">${escapeHtml(edge.to)}</a>: ${escapeHtml(edge.label)}</li>`
+    (edge) => `<li>${stateLink(edge.from)} → ${stateLink(edge.to)}: ${escapeHtml(edge.label)}</li>`
   ).join('');
-  return `<details class="transitions"><summary>Transitions (${String(STATE_EDGES.length)})</summary><ul>${items}</ul></details>`;
+  return `<details class="transitions" data-persist="transitions"><summary>Transitions (${String(STATE_EDGES.length)})</summary><ul>${items}</ul></details>`;
 }
 
 export function renderStateDiagram(counts: Partial<Record<NormalizedTaskState, number>>): string {

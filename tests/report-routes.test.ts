@@ -105,8 +105,16 @@ describe('report routes', () => {
     expect(tasksAt).toBeGreaterThan(-1);
     expect(ledgerAt).toBeGreaterThan(tasksAt);
     expect(throughputAt).toBeGreaterThan(ledgerAt);
-    expect(html).toContain('<details><summary><h2>Remediation evidence ledger');
-    expect(html).toContain('<details><summary><h2>Throughput</h2></summary>');
+    expect(html).toContain(
+      '<details data-persist="ledger"><summary><h2>Remediation evidence ledger'
+    );
+    expect(html).toContain(
+      '<details data-persist="throughput"><summary><h2>Throughput</h2></summary>'
+    );
+    expect(html).toContain('<details class="state-map-details" data-persist="state-map"><summary>');
+    expect(html).not.toContain('<details class="state-map-details" data-persist="state-map" open');
+    expect(html).toContain("var KEY='dashboard.open'");
+    expect(html).toContain('<script>(function(){');
     expect(html).toContain('<th>Verification</th>');
     const tasksTable = html.slice(tasksAt, ledgerAt);
     expect(tasksTable).toContain(
@@ -119,7 +127,9 @@ describe('report routes', () => {
       'not running in this process (dispatch poller: DEVIN_DISPATCH_INTERVAL_MS'
     );
     expect(tasksTable).toContain('<summary>What now?</summary>');
-    expect(tasksTable).toContain('href="#state-QUEUED"');
+    expect(tasksTable).toContain('href="#state-QUEUED" class="state-link" data-state="QUEUED"');
+    expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied"/);
+    expect(html).toMatch(/id="state-NEEDS_HUMAN" class="state-node next-human terminal"/);
     expect(html).toContain('<svg class="state-diagram"');
     expect(html).toMatch(/id="state-QUEUED" class="[^"]*occupied/);
     expect(html).toContain('<summary>Transitions (');
