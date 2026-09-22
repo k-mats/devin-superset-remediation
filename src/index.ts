@@ -33,7 +33,14 @@ export async function buildServer() {
   };
 
   await server.register(healthRoutes);
-  await server.register(reportRoutes);
+  await server.register(reportRoutes, {
+    workers: {
+      dispatch: config.devinDispatchIntervalMs > 0,
+      tracking: config.devinTrackingIntervalMs > 0,
+      reconcile: config.devinReconcileIntervalMs > 0,
+      verification: config.verificationEnabled,
+    },
+  });
   await server.register(operatorVerificationRoutes, {
     getGitHubClient: () => (config.githubToken ? getGitHubClient() : undefined),
     verification: config.verificationEnabled ? verificationOptionsFromConfig(config) : undefined,

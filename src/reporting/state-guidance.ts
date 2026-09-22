@@ -9,6 +9,25 @@ export interface StateGuidance {
   text: string;
 }
 
+export type Worker = 'dispatch' | 'tracking' | 'reconcile' | 'verification';
+
+/** Which background workers are enabled in this process (poller interval > 0, VERIFICATION_ENABLED). */
+export type WorkerAvailability = Record<Worker, boolean>;
+
+export const ALL_WORKERS_ENABLED: WorkerAvailability = {
+  dispatch: true,
+  tracking: true,
+  reconcile: true,
+  verification: true,
+};
+
+const WORKER_SETTING: Record<Worker, string> = {
+  dispatch: 'DEVIN_DISPATCH_INTERVAL_MS',
+  tracking: 'DEVIN_TRACKING_INTERVAL_MS',
+  reconcile: 'DEVIN_RECONCILE_INTERVAL_MS',
+  verification: 'VERIFICATION_ENABLED',
+};
+
 export const NEXT_ACTION_LABEL: Record<NextAction, string> = {
   wait: 'Wait — automation is progressing',
   operator: 'Action needed — operator step required',
@@ -19,18 +38,22 @@ export const NEXT_ACTION_LABEL: Record<NextAction, string> = {
 const BY_REASON = {
   attempt_pending: {
     next: 'wait',
+    requires: ['dispatch'],
     text: 'Queued. The dispatch poller (DEVIN_DISPATCH_INTERVAL_MS) will re-check the issue and create a Devin session on its next pass.',
   },
   attempt_dispatching: {
     next: 'wait',
+    requires: ['reconcile'],
     text: 'A Devin session is being created. Normally this lasts seconds. If it stays here longer than DEVIN_DISPATCH_GRACE_MS with no session link, reconciliation is looking the session up; if the logs keep reporting no_match, run attempt:requeue (see docs/operations.md).',
   },
   attempt_session_created: {
     next: 'wait',
+    requires: ['tracking'],
     text: 'Devin session created and starting. The tracking poller will mark it running once Devin reports progress.',
   },
   attempt_running: {
     next: 'wait',
+    requires: ['tracking'],
     text: 'Devin is working. The PR column fills in only after the session finishes and reports its structured output; an open PR alone does not advance the state. If Devin is waiting for user input, answer in the Devin session.',
   },
   no_verification_spec: {
@@ -39,6 +62,7 @@ const BY_REASON = {
   },
   pr_head_unknown: {
     next: 'wait',
+    requires: ['tracking'],
     text: 'PR recorded but its head commit is not known yet; the next tracking pass refreshes it.',
   },
   verified_head_superseded: {
@@ -47,6 +71,7 @@ const BY_REASON = {
   },
   github_checks_pending: {
     next: 'wait',
+    requires: ['tracking'],
     text: 'GitHub check runs on the PR head are still running. Nothing to do until they finish.',
   },
   spec_pending_approval: {
@@ -55,6 +80,7 @@ const BY_REASON = {
   },
   approved_spec_awaiting_run: {
     next: 'wait',
+    requires: ['tracking', 'verification'],
     text: 'Verification spec approved. The next tracking pass checks out the PR head, runs repository setup (minutes on first run) and executes the command. Use the Verification page to rerun explicitly.',
   },
   command_verification_error: {
@@ -97,7 +123,7 @@ const BY_REASON = {
     next: 'done',
     text: 'Cancelled because the issue was closed or lost its trigger label before dispatch.',
   },
-} satisfies Record<string, StateGuidance>;
+} satisfies Record<string, StateGuidance & { requires?: Worker[] }>;
 
 type KnownReason = keyof typeof BY_REASON;
 
@@ -120,6 +146,20 @@ const BY_STATE: Record<NormalizedTaskState, StateGuidance> = {
   CANCELLED: BY_REASON.outcome_cancelled,
 };
 
-export function stateGuidance(state: NormalizedTaskState, reason: string): StateGuidance {
-  return isKnownReason(reason) ? BY_REASON[reason] : BY_STATE[state];
+export function stateGuidance(
+  state: NormalizedTaskState,
+  reason: string,
+  workers: WorkerAvailability = ALL_WORKERS_ENABLED
+): StateGuidance {
+  const base: StateGuidance & { requires?: Worker[] } = isKnownReason(reason)
+    ? BY_REASON[reason]
+    : BY_STATE[state];
+  if (base.next !== 'wait') return { next: base.next, text: base.text };
+  const disabled = (base.requires ?? []).filter((worker) => !workers[worker]);
+  if (disabled.length === 0) return { next: base.next, text: base.text };
+  const settings = disabled.map((worker) => WORKER_SETTING[worker]).join(', ');
+  return {
+    next: 'operator',
+    text: `Automation for this state is disabled in this process (${settings}), so it will not progress on its own. Enable the setting and restart, or handle the step manually. Normally: ${base.text}`,
+  };
 }

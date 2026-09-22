@@ -112,7 +112,10 @@ describe('report routes', () => {
     expect(tasksTable).toContain(
       `<a href="/operator/attempts/${String(attemptId)}/verification">Verification</a>`
     );
-    expect(tasksTable).toContain('Wait — automation is progressing');
+    // tests/setup.ts disables the dispatch poller, so a QUEUED task must not claim to be progressing
+    expect(tasksTable).not.toContain('Wait — automation is progressing');
+    expect(tasksTable).toContain('Action needed — operator step required');
+    expect(tasksTable).toContain('disabled in this process (DEVIN_DISPATCH_INTERVAL_MS)');
     expect(tasksTable).toContain('<summary>What now?</summary>');
     expect(tasksTable).toContain('The dispatch poller');
   });

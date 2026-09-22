@@ -4,7 +4,12 @@ import type {
   Report,
   ReportAttemptRow,
 } from './report-model.js';
-import { NEXT_ACTION_LABEL, stateGuidance } from './state-guidance.js';
+import {
+  ALL_WORKERS_ENABLED,
+  NEXT_ACTION_LABEL,
+  stateGuidance,
+  type WorkerAvailability,
+} from './state-guidance.js';
 import type { NormalizedTaskState } from '../tracking/normalized-task-state.js';
 
 export function safeHref(url: string | null): string | null {
@@ -109,8 +114,12 @@ function renderApproval(attempt: LedgerAttemptEvidence): string {
   return `${escapeHtml(approval.status)}${spec}${link}`;
 }
 
-function renderStateCell(state: NormalizedTaskState, reason: string): string {
-  const guidance = stateGuidance(state, reason);
+function renderStateCell(
+  state: NormalizedTaskState,
+  reason: string,
+  workers: WorkerAvailability
+): string {
+  const guidance = stateGuidance(state, reason, workers);
   return `<strong>${escapeHtml(state)}</strong><small>${escapeHtml(reason)}</small><span class="next next-${guidance.next}" title="${escapeHtml(guidance.text)}">${escapeHtml(NEXT_ACTION_LABEL[guidance.next])}</span><details class="guidance"><summary>What now?</summary><p>${escapeHtml(guidance.text)}</p></details>`;
 }
 
@@ -162,7 +171,10 @@ function renderAttempt(attempt: ReportAttemptRow): string {
   return `<li>#${String(attempt.attemptNumber)} · ${escapeHtml(attempt.state)} · ${escapeHtml(attempt.outcome ?? '—')} · ${session} · ${pr}</li>`;
 }
 
-export function renderDashboard(report: Report): string {
+export function renderDashboard(
+  report: Report,
+  workers: WorkerAvailability = ALL_WORKERS_ENABLED
+): string {
   const summaryCards = [
     ['Active', report.summary.byBucket.active],
     ['Successful (VERIFIED)', report.summary.byBucket.successful],
@@ -199,7 +211,7 @@ export function renderDashboard(report: Report): string {
           ? `<details><summary>Attempt history</summary><ol>${task.attempts.map(renderAttempt).join('')}</ol></details>`
           : '';
       const verificationLink = `<a href="/operator/attempts/${String(task.currentAttempt.id)}/verification">Verification</a>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
+      return `<tr><td>${issue}</td><td>${renderStateCell(task.state, task.reason, workers)}</td><td>${escapeHtml(task.currentAttempt.state)} / ${escapeHtml(task.currentAttempt.outcome ?? '—')} / ${escapeHtml(task.currentAttempt.outcomeReason ?? '—')}</td><td>${String(task.currentAttempt.attemptNumber)} / ${String(task.attemptCount)}${history}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(task.lastUpdatedAt))}</td></tr>`;
     })
     .join('');
   const ledgerRows = report.ledger
@@ -208,7 +220,7 @@ export function renderDashboard(report: Report): string {
       const issue = `${issueHref ? `<a href="${escapeHtml(issueHref)}">#${String(row.issueNumber)}</a>` : escapeHtml(row.issueUrl)} ${escapeHtml(row.title ?? '(untitled)')}`;
       const current = row.current;
       if (current === null) {
-        return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason)}</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
+        return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers)}</td><td>0 / 0</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td><small>discovered ${escapeHtml(formatTime(row.discoveredAt))}</small></td></tr>`;
       }
       const attemptHistory = renderAttemptHistory(row.history);
       const priorCommandCount = current.verification.prior.filter(
@@ -227,7 +239,7 @@ export function renderDashboard(report: Report): string {
           : `<small>${String(priorGitHubChecksCount)} prior run(s) for this head</small>`;
       const outcome = `${escapeHtml(current.attemptState)} / ${escapeHtml(current.outcome ?? '—')} / ${escapeHtml(current.outcomeReason ?? '—')}${current.agentReported.needsHumanReason === null ? '' : `<small>needs-human (agent-reported): ${escapeHtml(current.agentReported.needsHumanReason)}</small>`}${current.agentReported.outcome === null ? '' : `<small>agent outcome: ${escapeHtml(current.agentReported.outcome)}</small>`}`;
       const timestamps = `<small>discovered ${escapeHtml(formatTime(row.discoveredAt))}<br>dispatched ${escapeHtml(formatTime(current.timestamps.dispatchedAt))}<br>session created ${escapeHtml(formatTime(current.timestamps.sessionCreatedAt))}<br>completed ${escapeHtml(formatTime(current.timestamps.completedAt))}<br>terminal ${escapeHtml(formatTime(current.timestamps.terminalAt))}<br>verified ${escapeHtml(formatTime(current.timestamps.verifiedAt))}</small>`;
-      return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason)}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
+      return `<tr><td>${issue}</td><td>${renderStateCell(row.state, row.reason, workers)}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}${attemptHistory}</td><td>${renderSessionEvidence(current)}</td><td>${renderPrEvidence(current)}</td><td>${renderVerificationEvidence(current.verification.command)}${commandPrior}</td><td>${renderVerificationEvidence(current.verification.githubChecks)}${githubChecksPrior}</td><td>${renderApproval(current)}</td><td>${outcome}</td><td>${timestamps}</td></tr>`;
     })
     .join('');
   const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
