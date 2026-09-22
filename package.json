@@ -25,6 +25,7 @@
     "demo:tracking": "tsx scripts/tracking-demo.ts",
     "demo:verification": "tsx scripts/verification-demo.ts",
     "demo:adopt-session": "tsx scripts/adopt-session-demo.ts",
+    "demo:dashboard-fixtures": "tsx scripts/dashboard-fixtures-demo.ts",
     "verification:show": "tsx scripts/verification-show.ts",
     "verification:approve": "tsx scripts/verification-approve.ts",
     "verification:propose": "tsx scripts/verification-propose.ts",

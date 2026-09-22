@@ -31,6 +31,9 @@ devin-superset-remediation/
 │   ├── reporting/
 │   │   ├── report-model.ts    # Task and attempt observability report (Issue #15, #24)
 │   │   ├── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15, #24)
+│   │   ├── state-guidance.ts  # Per-state "what now" text and next-action class for the dashboard
+│   │   ├── state-diagram.ts   # Inline-SVG normalized state map with per-state counts and anchors
+│   │   ├── html.ts            # escapeHtml shared by renderers
 │   │   └── render-operator-verification.ts # Operator verification page (Issue #64)
 │   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
 │   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
@@ -62,6 +65,7 @@ devin-superset-remediation/
 │   └── tracking-demo.ts       # Single session and PR tracking pass demo (Issue #11)
 │   ├── verification-demo.ts   # Single independent verification pass demo (Issue #13)
 │   ├── adopt-session-demo.ts  # Attach an existing Devin session to a pending attempt
+│   ├── dashboard-fixtures-demo.ts # Seed one task per dashboard state/reason (no credentials)
 │   ├── verification-show.ts   # Wrapper → src/cli/verification-show.ts
 │   ├── verification-approve.ts# Wrapper → src/cli/verification-approve.ts
 │   ├── verification-propose.ts# Wrapper → src/cli/verification-propose.ts

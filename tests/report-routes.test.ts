@@ -96,6 +96,54 @@ describe('report routes', () => {
     expect(response.payload).not.toContain('href="javascript:');
   });
 
+  it('orders Tasks first, collapses ledger and throughput, and explains each state', async () => {
+    const response = await server.inject({ method: 'GET', url: '/dashboard' });
+    const html = response.payload;
+    const tasksAt = html.indexOf('<h2>Tasks (');
+    const ledgerAt = html.indexOf('<h2>Remediation evidence ledger');
+    const throughputAt = html.indexOf('<h2>Throughput</h2>');
+    expect(tasksAt).toBeGreaterThan(-1);
+    expect(ledgerAt).toBeGreaterThan(tasksAt);
+    expect(throughputAt).toBeGreaterThan(ledgerAt);
+    expect(html).toContain(
+      '<details data-persist="ledger"><summary><h2>Remediation evidence ledger'
+    );
+    expect(html).toContain(
+      '<details data-persist="throughput"><summary><h2>Throughput</h2></summary>'
+    );
+    expect(html).toContain('<details class="state-map-details" data-persist="state-map"><summary>');
+    expect(html).not.toContain('<details class="state-map-details" data-persist="state-map" open');
+    expect(html).toContain("var KEY='dashboard.open'");
+    expect(html).toContain('<script>(function(){');
+    expect(html).toContain('<th>Verification</th>');
+    const tasksTable = html.slice(tasksAt, ledgerAt);
+    expect(tasksTable).toContain(
+      `<a href="/operator/attempts/${String(attemptId)}/verification">Verification</a>`
+    );
+    // tests/setup.ts disables the dispatch poller, so a QUEUED task must not claim to be progressing
+    expect(tasksTable).not.toContain('Wait — automation is progressing');
+    expect(tasksTable).toContain('Action needed — operator step required');
+    expect(tasksTable).toContain(
+      'not running in this process (dispatch poller: DEVIN_DISPATCH_INTERVAL_MS'
+    );
+    expect(tasksTable).toContain('<summary>What now?</summary>');
+    expect(tasksTable).toContain('href="#state-QUEUED" class="state-link" data-state="QUEUED"');
+    expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied"/);
+    expect(html).toMatch(/id="state-NEEDS_HUMAN" class="state-node next-human terminal"/);
+    expect(html).toContain('<svg class="state-diagram"');
+    expect(html).toMatch(/id="state-QUEUED" class="[^"]*occupied/);
+    expect(html).toContain('<summary>Transitions (');
+    expect(tasksTable).toContain('The dispatch poller');
+  });
+
+  it('counts tasks without attempts on the state map', async () => {
+    upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 16, title: 'orphan' });
+    const response = await server.inject({ method: 'GET', url: '/dashboard' });
+    const html = response.payload;
+    expect(html).toContain('Tasks without attempts: 1');
+    expect(html).toMatch(/id="state-QUEUED" class="state-node next-wait occupied">[^]*?>2 tasks</);
+  });
+
   it('renders scripts only on the dedicated operator page', async () => {
     const response = await server.inject({
       method: 'GET',

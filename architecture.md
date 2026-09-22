@@ -105,6 +105,10 @@ reconciler looks the session up instead of recreating it, and never releases
 or completes the row itself. `outcome` (`succeeded`, `failed`, `cancelled`,
 `escalated`, `no_action`) and `outcome_reason` are set only on `completed`.
 The dashboard shows the derived normalized state below, not these raw states.
+Its "State map" section (`src/reporting/state-diagram.ts`) renders the same
+lifecycle projected onto normalized states as inline SVG, with per-state task
+counts and a `#state-<STATE>` anchor per box so each Tasks row can highlight
+its current position.
 
 ### Normalized task state
 
