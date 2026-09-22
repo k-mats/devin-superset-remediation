@@ -28,6 +28,7 @@
     "verification:show": "tsx scripts/verification-show.ts",
     "verification:approve": "tsx scripts/verification-approve.ts",
     "verification:propose": "tsx scripts/verification-propose.ts",
+    "attempt:requeue": "tsx scripts/attempt-requeue.ts",
     "check": "pnpm format:check && pnpm lint && pnpm type-check && pnpm test && pnpm build"
   },
   "packageManager": "pnpm@12.4.2",

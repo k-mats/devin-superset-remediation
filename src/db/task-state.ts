@@ -220,6 +220,52 @@ export function releaseDispatchClaim(
   return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
 }
 
+export class AttemptNotRequeueableError extends Error {
+  constructor(attemptId: number, detail: string) {
+    super(`Attempt ${String(attemptId)} cannot be requeued: ${detail}`);
+    this.name = 'AttemptNotRequeueableError';
+  }
+}
+
+export const REQUEUE_OUTCOME_REASON = 'operator_requeue_dispatch_failed';
+
+/**
+ * Operator recovery for a dispatch that failed without ever creating a Devin
+ * session: the stuck `dispatching` attempt is completed as `failed` and a new
+ * `pending` attempt (fresh correlation id) is created for the same task so the
+ * dispatch poller retries it. Runs in one transaction.
+ *
+ * Attempts claimed less than `graceMs` ago are refused: the create-session
+ * request may still be in flight, and completing the row underneath it would
+ * let both the original request and the requeued attempt produce a session.
+ */
+export function requeueDispatchFailedAttempt(
+  attemptId: number,
+  graceMs: number,
+  db: Db = getDb(),
+  now: number = Date.now()
+): { failed: Attempt; requeued: Attempt } {
+  return db.transaction((tx) => {
+    const attempt = requireAttempt(attemptId, tx);
+    if (attempt.state !== 'dispatching' || attempt.devinSessionId !== null) {
+      throw new AttemptNotRequeueableError(
+        attemptId,
+        `state '${attempt.state}'${attempt.devinSessionId !== null ? ' with a Devin session' : ''}; only 'dispatching' attempts without a Devin session are eligible`
+      );
+    }
+    const dispatchedAt = attempt.dispatchedAt ?? attempt.updatedAt;
+    if (now - dispatchedAt < graceMs) {
+      throw new AttemptNotRequeueableError(
+        attemptId,
+        `claimed ${String(now - dispatchedAt)} ms ago, within the ${String(graceMs)} ms dispatch grace period; the create-session request may still be in flight`
+      );
+    }
+    const failed = completeAttempt(attemptId, 'failed', { reason: REQUEUE_OUTCOME_REASON }, tx);
+    const requeued = createAttempt(attempt.taskId, tx);
+    return { failed, requeued };
+  });
+}
+
 export function markDispatching(attemptId: number, db: DbExecutor = getDb()): Attempt {
   const claimed = claimAttemptForDispatch(attemptId, db);
   if (!claimed) {

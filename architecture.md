@@ -76,6 +76,36 @@ enters `verifying` while it is tracked independently from the agent report;
 the orchestrator only completes the attempt after the lifecycle decision is
 made.
 
+### Attempt state machine
+
+`ALLOWED_TRANSITIONS` in `src/db/task-state.ts` is the single source of truth;
+every transition is a guarded `UPDATE ... WHERE state = <from>` so concurrent
+pollers cannot double-apply one. Which poller drives each edge:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: intake creates attempt
+    pending --> dispatching: dispatcher claims (atomic)
+    dispatching --> pending: transient GitHub revalidation error / Devin 4xx (no session created)
+    dispatching --> session_created: createSession ok, or reconciler adopts by correlation tag
+    pending --> completed: cancelled (issue closed / label removed)
+    dispatching --> completed: eligibility check failed, or operator attempt:requeue (failed + new pending attempt)
+    session_created --> running: tracker sees Devin status running
+    session_created --> verifying: PR detected
+    session_created --> completed: no_action / escalated / failed
+    running --> verifying: PR detected
+    running --> completed: no_action / escalated / failed
+    verifying --> completed: succeeded / escalated / failed
+    completed --> [*]
+```
+
+A `dispatching` row with a NULL `devin_session_id` older than
+`DEVIN_DISPATCH_GRACE_MS` means the create-session result is unknown; the
+reconciler looks the session up instead of recreating it, and never releases
+or completes the row itself. `outcome` (`succeeded`, `failed`, `cancelled`,
+`escalated`, `no_action`) and `outcome_reason` are set only on `completed`.
+The dashboard shows the derived normalized state below, not these raw states.
+
 ### Normalized task state
 
 Issue #14 adds a derived projection (`src/tracking/normalized-task-state.ts`)

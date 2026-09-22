@@ -197,6 +197,7 @@ Secrets are never baked into the image and never appear in `/api/report`,
 | Approve a verification spec        | **Real workflow** | GitHub + Devin      | `docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>` (operator step, by design manual) |
 | Run one poller pass by hand        | Manual exercise   | GitHub and/or Devin | `pnpm demo:intake`, `pnpm demo:dispatch`, `pnpm demo:tracking`, `pnpm demo:verification --attempt <id>` (host, Node.js)               |
 | Attach an existing Devin session   | Manual exercise   | Devin               | `pnpm demo:adopt-session` — used to record evidence without re-dispatching                                                            |
+| Requeue a stuck dispatch           | **Real workflow** | None                | `docker compose exec app node dist/cli/attempt-requeue.js --attempt <id>` after fixing config (see [operations](docs/operations.md))  |
 | Insert a task without any provider | Manual evidence   | None                | `node -e` snippet in the [persistence check](docs/operations.md#persistence); exercises persistence/reporting only                    |
 | Devin API connectivity             | Smoke test        | Devin               | `pnpm smoke:devin`                                                                                                                    |
 

@@ -290,10 +290,14 @@ completed with outcome `failed` and reason `eligibility_check_failed:
 <message>`. Transient revalidation failures (5xx, 429, 403 rate limits,
 network/timeout, or
 parse errors) instead release the claim back to `pending` and the attempt
-is retried on the next poll — retry caps are owned by Issue #21. If
-`createSession` fails or times out, the attempt is intentionally left in
-`dispatching` — a session may exist server-side, and uncertain-dispatch
-reconciliation (Issue #20, below) owns recovery.
+is retried on the next poll — retry caps are owned by Issue #21. If Devin
+rejects `createSession` with a 4xx (bad API key, wrong `DEVIN_ORG_ID`,
+validation, rate limit), no session exists, so the claim is released back to
+`pending` and retried on the next poll (`session_create_rejected`, counted as
+`deferred`); fix the configuration and the attempt proceeds on its own. If
+`createSession` fails uncertainly (5xx, timeout, network error), the attempt
+is intentionally left in `dispatching` — a session may exist server-side, and
+uncertain-dispatch reconciliation (Issue #20, below) owns recovery.
 
 Migration `0002` reconciles legacy data before creating the partial index:
 tasks with multiple active attempts keep the newest active row (preferring
@@ -341,6 +345,26 @@ never creates a session, releases the claim, or calls GitHub.
 Reconciliation requires only `DEVIN_API_KEY` and `DEVIN_ORG_ID`.
 `DEVIN_RECONCILE_INTERVAL_MS` defaults to 60000 milliseconds; set it to `0`
 to disable. The poller runs once at startup and then on the interval.
+
+If an attempt is stuck in `dispatching` without a session and reconciliation
+keeps reporting `no_match` (an uncertain failure whose session was in fact
+never created, or a row left behind by a version that did not release 4xx
+rejections), the dashboard shows `DISPATCHING` indefinitely and intake skips
+the issue (`existing_attempt`). Recovery is an explicit operator step (refused
+while the attempt is younger than `DEVIN_DISPATCH_GRACE_MS`, since its
+create-session request may still be in flight):
+
+```bash
+pnpm attempt:requeue --attempt <id>
+# in Docker:
+docker compose exec app node dist/cli/attempt-requeue.js --attempt <id>
+```
+
+This completes the stuck attempt as `failed` with `outcome_reason`
+`operator_requeue_dispatch_failed` and creates a new `pending` attempt (fresh
+correlation id) for the same task, which the dispatch poller picks up on its
+next pass. It refuses attempts that are not `dispatching` or that already
+carry a `devin_session_id` — those belong to reconciliation/tracking.
 
 Because the pollers are stateless over SQLite, restart recovery otherwise
 needs no explicit pass: `session_created`/`running`/`verifying` attempts and
@@ -448,6 +472,7 @@ alternative workflow.
 | `pnpm demo:restart`                                             | Persistent-state restart demo in `./data/demo-state-restart.db` (`DEMO_DATABASE_PATH`) | None                                     |
 | `pnpm verification:show --attempt <id>`                         | Print normalized state, raw provider facts, candidate/approved spec, verification rows | None                                     |
 | `pnpm verification:propose --attempt <id> --command "<cmd>"`    | Propose an operator verification spec (candidate only)                                 | None                                     |
+| `pnpm attempt:requeue --attempt <id>`                           | Fail a `dispatching` attempt that never got a Devin session and queue a new attempt    | None                                     |
 | `pnpm verification:approve --attempt <id> --spec-hash <sha256>` | Approve a pending verification spec by sha256                                          | None                                     |
 | `pnpm smoke:devin`                                              | Minimal Devin session create + poll, sanitized JSON summary                            | Devin (`DEVIN_API_KEY`, `DEVIN_ORG_ID`)  |
 
