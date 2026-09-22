@@ -8,8 +8,10 @@ import {
   completeAttempt,
   findCompletedAttemptsWithTrackedPullRequests,
   findTrackableAttempts,
+  findVerifiedAttemptsAwaitingLabel,
   getAttempt,
   markRunning,
+  markVerifiedLabelApplied,
   markVerifying,
   recordPullRequest,
   recordSessionSnapshot,
@@ -54,16 +56,18 @@ export interface TrackingResult {
   verificationFailed: number;
   verificationUnverified: number;
   verificationError: number;
+  verifiedLabelsApplied: number;
   failed: number;
 }
 
 export interface SessionTrackerOptions {
   devin: Pick<DevinClient, 'getSession'>;
   github: Pick<GitHubClient, 'getPullRequest'> &
-    Partial<Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus'>>;
+    Partial<Pick<GitHubClient, 'getIssue' | 'listCheckRuns' | 'getCombinedStatus' | 'addLabels'>>;
   logger: Pick<FastifyBaseLogger, 'info' | 'warn' | 'error' | 'debug'>;
   db?: Db;
   staleWarnMs: number;
+  verifiedLabel?: string;
   verification?: Omit<VerifyRemediationOptions, 'logger' | 'db' | 'github'>;
 }
 
@@ -338,6 +342,7 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     verificationFailed: 0,
     verificationUnverified: 0,
     verificationError: 0,
+    verifiedLabelsApplied: 0,
     failed: 0,
   };
 
@@ -368,6 +373,34 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
         'Pull request refresh failed for attempt'
       );
       result.failed += 1;
+    }
+  }
+
+  if (
+    typeof opts.verifiedLabel === 'string' &&
+    opts.verifiedLabel !== '' &&
+    opts.github.addLabels
+  ) {
+    for (const { attempt, task } of findVerifiedAttemptsAwaitingLabel(db)) {
+      // prNumber is guaranteed non-null by the finder query.
+      const prNumber = attempt.prNumber as number;
+      try {
+        await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [opts.verifiedLabel]);
+        markVerifiedLabelApplied(attempt.id, db);
+        opts.logger.info(
+          { ...logContext(attempt), pr_number: prNumber, label: opts.verifiedLabel },
+          'Applied verified label to pull request'
+        );
+        result.verifiedLabelsApplied += 1;
+      } catch (error: unknown) {
+        opts.logger.warn(
+          { ...logContext(attempt), err: error, pr_number: prNumber, label: opts.verifiedLabel },
+          isLookupDeferred(error)
+            ? 'Verified label application failed transiently; retrying on the next poll'
+            : 'Verified label application failed; retrying on the next poll'
+        );
+        result.failed += 1;
+      }
     }
   }
 

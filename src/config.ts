@@ -12,6 +12,7 @@ const configSchema = z.object({
   githubRepoOwner: z.string().optional(),
   githubRepoName: z.string().optional(),
   githubIntakeLabel: z.string().default('devin-ready'),
+  githubVerifiedLabel: z.string().default('devin-verified'),
   githubPollIntervalMs: z.coerce.number().int().min(0).max(2_147_483_647).default(60_000),
   devinApiKey: z.string().optional(),
   devinOrgId: z.string().optional(),
@@ -59,6 +60,8 @@ export function loadConfig(): Config {
     githubRepoOwner: envValue('GITHUB_REPO_OWNER'),
     githubRepoName: envValue('GITHUB_REPO_NAME'),
     githubIntakeLabel: envValue('GITHUB_INTAKE_LABEL'),
+    // Not envValue(): an empty GITHUB_VERIFIED_LABEL disables verified labelling.
+    githubVerifiedLabel: process.env['GITHUB_VERIFIED_LABEL'],
     githubPollIntervalMs: envValue('GITHUB_POLL_INTERVAL_MS'),
     devinApiKey: envValue('DEVIN_API_KEY'),
     devinOrgId: envValue('DEVIN_ORG_ID'),

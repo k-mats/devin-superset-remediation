@@ -57,6 +57,13 @@
       "when": 1789987810753,
       "tag": "0007_perpetual_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790078912043,
+      "tag": "0008_loud_dragon_man",
+      "breakpoints": true
     }
   ]
 }

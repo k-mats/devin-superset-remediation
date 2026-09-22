@@ -112,15 +112,24 @@ export class GitHubClient {
     this.perPage = opts.perPage ?? DEFAULT_PER_PAGE;
   }
 
-  private async request(path: string): Promise<unknown> {
+  private async request(
+    path: string,
+    init: { method?: 'GET' | 'POST'; body?: unknown } = {}
+  ): Promise<unknown> {
+    const method = init.method ?? 'GET';
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'devin-superset-remediation',
+    };
+    if (init.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await this.fetchFn(`${this.baseUrl}${path}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'devin-superset-remediation',
-      },
+      method,
+      headers,
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
@@ -132,10 +141,20 @@ export class GitHubClient {
         (response.status === 403 &&
           (response.headers.get('x-ratelimit-remaining') === '0' ||
             response.headers.has('retry-after')));
-      throw new GitHubApiError(response.status, 'GET', path, body, rateLimited);
+      throw new GitHubApiError(response.status, method, path, body, rateLimited);
     }
 
     return response.json();
+  }
+
+  async addLabels(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    labels: string[]
+  ): Promise<void> {
+    const path = `/repos/${owner}/${repo}/issues/${String(issueNumber)}/labels`;
+    await this.request(path, { method: 'POST', body: { labels } });
   }
 
   async getIssue(owner: string, repo: string, issueNumber: number): Promise<GitHubIssue> {

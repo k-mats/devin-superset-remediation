@@ -23,6 +23,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     databasePath: './test-database.db',
     logLevel: 'error',
     githubIntakeLabel: 'devin-ready',
+    githubVerifiedLabel: 'devin-verified',
     githubPollIntervalMs: 0,
     devinApiKey: undefined,
     devinOrgId: undefined,
@@ -89,6 +90,36 @@ describe('GitHubClient', () => {
     expect(error).toBeInstanceOf(GitHubApiError);
     expect(error).toMatchObject({ status: 500 });
     expect(String(error)).not.toContain('test-token');
+  });
+
+  it('posts labels to the issue labels endpoint', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(JSON.stringify([{ name: 'devin-verified' }]), { status: 200 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    await client.addLabels('owner', 'repo', 11, ['devin-verified']);
+
+    const [url, init] = fetchFn.mock.calls[0] ?? [];
+    expect(url).toBe('https://api.github.com/repos/owner/repo/issues/11/labels');
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe(JSON.stringify({ labels: ['devin-verified'] }));
+    const headers = init?.headers as Record<string, string>;
+    expect(headers['Authorization']).toBe('Bearer test-token');
+    expect(headers['Content-Type']).toBe('application/json');
+  });
+
+  it('throws GitHubApiError with method POST when labelling is forbidden', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('forbidden', { status: 403 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client
+      .addLabels('owner', 'repo', 11, ['devin-verified'])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(error).toMatchObject({ status: 403, method: 'POST' });
   });
 
   it('fetches a single issue by number', async () => {

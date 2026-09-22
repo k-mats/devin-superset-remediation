@@ -33,6 +33,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     databasePath: './data/test.db',
     logLevel: 'info',
     githubIntakeLabel: 'devin-ready',
+    githubVerifiedLabel: 'devin-verified',
     githubPollIntervalMs: 0,
     devinApiKey: 'test-key',
     devinOrgId: 'org_123',
