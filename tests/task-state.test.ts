@@ -10,6 +10,7 @@ import { closeDb, getDb, getRawDb, runMigrations } from '../src/db/client.js';
 import { attempts, tasks, verifications } from '../src/db/schema.js';
 import {
   ActiveAttemptExistsError,
+  AttemptNotRequeueableError,
   approveVerificationSpec,
   claimAttemptForDispatch,
   clearVerificationCandidate,
@@ -35,6 +36,8 @@ import {
   recordStructuredOutput,
   recordPullRequest,
   recordVerification,
+  REQUEUE_OUTCOME_REASON,
+  requeueDispatchFailedAttempt,
   setVerificationCandidate,
   upsertTask,
   VerificationSpecMismatchError,
@@ -574,6 +577,37 @@ describe('task state repository', () => {
     claimAttemptForDispatch(pending.id);
     getDb().update(attempts).set({ devinSessionId: 'in-flight' }).run();
     expect(releaseDispatchClaim(pending.id)).toBeUndefined();
+  });
+
+  it('requeues a dispatching attempt without a session as failed + new pending attempt', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    claimAttemptForDispatch(attempt.id);
+
+    const { failed, requeued } = requeueDispatchFailedAttempt(attempt.id);
+    expect(failed).toMatchObject({
+      id: attempt.id,
+      state: 'completed',
+      outcome: 'failed',
+      outcomeReason: REQUEUE_OUTCOME_REASON,
+    });
+    expect(requeued).toMatchObject({ taskId: task.id, attemptNumber: 2, state: 'pending' });
+    expect(requeued.correlationId).not.toBe(attempt.correlationId);
+    expect(listAttempts(task.id)).toHaveLength(2);
+    expect(findPendingAttempts().map((row) => row.attempt.id)).toEqual([requeued.id]);
+  });
+
+  it('refuses to requeue attempts that are not dispatching or already have a session', () => {
+    const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
+    const attempt = createAttempt(task.id);
+    expect(() => requeueDispatchFailedAttempt(attempt.id)).toThrow(AttemptNotRequeueableError);
+    expect(listAttempts(task.id)).toHaveLength(1);
+
+    claimAttemptForDispatch(attempt.id);
+    markSessionCreated(attempt.id, { devinSessionId: 'devin-1' });
+    expect(() => requeueDispatchFailedAttempt(attempt.id)).toThrow(AttemptNotRequeueableError);
+    expect(getAttemptByCorrelationId(attempt.correlationId)?.state).toBe('session_created');
+    expect(listAttempts(task.id)).toHaveLength(1);
   });
 
   it('rejects markDispatching on a non-pending attempt', () => {

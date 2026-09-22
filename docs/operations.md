@@ -342,6 +342,25 @@ Reconciliation requires only `DEVIN_API_KEY` and `DEVIN_ORG_ID`.
 `DEVIN_RECONCILE_INTERVAL_MS` defaults to 60000 milliseconds; set it to `0`
 to disable. The poller runs once at startup and then on the interval.
 
+If `createSession` failed before any session was created (for example a
+misconfigured `DEVIN_ORG_ID` or API key — the dispatch log shows `Devin
+session creation failed; attempt left in dispatching state` and every
+reconciliation pass reports `no_match`), the attempt stays `DISPATCHING` on
+the dashboard indefinitely and intake skips the issue (`existing_attempt`).
+Recovery is an explicit operator step after fixing the configuration:
+
+```bash
+pnpm attempt:requeue --attempt <id>
+# in Docker:
+docker compose exec app node dist/cli/attempt-requeue.js --attempt <id>
+```
+
+This completes the stuck attempt as `failed` with `outcome_reason`
+`operator_requeue_dispatch_failed` and creates a new `pending` attempt (fresh
+correlation id) for the same task, which the dispatch poller picks up on its
+next pass. It refuses attempts that are not `dispatching` or that already
+carry a `devin_session_id` — those belong to reconciliation/tracking.
+
 Because the pollers are stateless over SQLite, restart recovery otherwise
 needs no explicit pass: `session_created`/`running`/`verifying` attempts and
 completed attempts with tracked open pull requests are picked up by the
@@ -448,6 +467,7 @@ alternative workflow.
 | `pnpm demo:restart`                                             | Persistent-state restart demo in `./data/demo-state-restart.db` (`DEMO_DATABASE_PATH`) | None                                     |
 | `pnpm verification:show --attempt <id>`                         | Print normalized state, raw provider facts, candidate/approved spec, verification rows | None                                     |
 | `pnpm verification:propose --attempt <id> --command "<cmd>"`    | Propose an operator verification spec (candidate only)                                 | None                                     |
+| `pnpm attempt:requeue --attempt <id>`                           | Fail a `dispatching` attempt that never got a Devin session and queue a new attempt    | None                                     |
 | `pnpm verification:approve --attempt <id> --spec-hash <sha256>` | Approve a pending verification spec by sha256                                          | None                                     |
 | `pnpm smoke:devin`                                              | Minimal Devin session create + poll, sanitized JSON summary                            | Devin (`DEVIN_API_KEY`, `DEVIN_ORG_ID`)  |
 

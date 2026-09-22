@@ -35,6 +35,7 @@ devin-superset-remediation/
 │   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
 │   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
 │   │   ├── verification-propose.ts  # Propose a verification spec as the operator
+│   │   ├── attempt-requeue.ts       # Fail a session-less dispatching attempt and queue a new one
 │   │   └── verification-approve.ts  # Approve a pending verification spec by sha256
 │   ├── verification/         # Independent remediation verification (Issue #13)
 │   │   ├── spec.ts           # Issue `## Verification` section parser and spec hashing
@@ -63,7 +64,8 @@ devin-superset-remediation/
 │   ├── adopt-session-demo.ts  # Attach an existing Devin session to a pending attempt
 │   ├── verification-show.ts   # Wrapper → src/cli/verification-show.ts
 │   ├── verification-approve.ts# Wrapper → src/cli/verification-approve.ts
-│   └── verification-propose.ts# Wrapper → src/cli/verification-propose.ts
+│   ├── verification-propose.ts# Wrapper → src/cli/verification-propose.ts
+│   └── attempt-requeue.ts     # Wrapper → src/cli/attempt-requeue.ts
 ├── docs/
 │   ├── operations.md         # Operations guide: Docker, host prerequisites, verification specs, stage details (Issue #18)
 │   └── evidence/             # Verification evidence artifacts (incl. issue-17-docker.md, issue-18-readme-walkthrough.md)

@@ -220,6 +220,42 @@ export function releaseDispatchClaim(
   return db.select().from(attempts).where(eq(attempts.id, attemptId)).get();
 }
 
+export class AttemptNotRequeueableError extends Error {
+  constructor(attemptId: number, state: AttemptState, hasSession: boolean) {
+    super(
+      `Attempt ${String(attemptId)} cannot be requeued: state '${state}'${hasSession ? ' with a Devin session' : ''}; only 'dispatching' attempts without a Devin session are eligible`
+    );
+    this.name = 'AttemptNotRequeueableError';
+  }
+}
+
+export const REQUEUE_OUTCOME_REASON = 'operator_requeue_dispatch_failed';
+
+/**
+ * Operator recovery for a dispatch that failed without ever creating a Devin
+ * session: the stuck `dispatching` attempt is completed as `failed` and a new
+ * `pending` attempt (fresh correlation id) is created for the same task so the
+ * dispatch poller retries it. Runs in one transaction.
+ */
+export function requeueDispatchFailedAttempt(
+  attemptId: number,
+  db: Db = getDb()
+): { failed: Attempt; requeued: Attempt } {
+  return db.transaction((tx) => {
+    const attempt = requireAttempt(attemptId, tx);
+    if (attempt.state !== 'dispatching' || attempt.devinSessionId !== null) {
+      throw new AttemptNotRequeueableError(
+        attemptId,
+        attempt.state,
+        attempt.devinSessionId !== null
+      );
+    }
+    const failed = completeAttempt(attemptId, 'failed', { reason: REQUEUE_OUTCOME_REASON }, tx);
+    const requeued = createAttempt(attempt.taskId, tx);
+    return { failed, requeued };
+  });
+}
+
 export function markDispatching(attemptId: number, db: DbExecutor = getDb()): Attempt {
   const claimed = claimAttemptForDispatch(attemptId, db);
   if (!claimed) {
