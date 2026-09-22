@@ -382,8 +382,8 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     opts.github.addLabels
   ) {
     for (const { attempt, task } of findVerifiedAttemptsAwaitingLabel(db)) {
-      // prNumber is guaranteed non-null by the finder query.
-      const prNumber = attempt.prNumber as number;
+      const prNumber = attempt.prNumber;
+      if (prNumber === null) continue;
       try {
         await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [opts.verifiedLabel]);
         markVerifiedLabelApplied(attempt.id, db);
