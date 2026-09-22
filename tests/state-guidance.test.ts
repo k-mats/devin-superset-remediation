@@ -35,7 +35,10 @@ describe('stateGuidance', () => {
     expect(stateGuidance('CI_PENDING', 'github_checks_pending', noVerification).next).toBe(
       'operator'
     );
-    expect(stateGuidance('QUEUED', 'task_without_attempt').next).toBe('operator');
+    expect(stateGuidance('QUEUED', 'task_without_attempt').next).toBe('wait');
+    const noIntake = { ...ALL_WORKERS_ENABLED, intake: false };
+    expect(stateGuidance('QUEUED', 'task_without_attempt', noIntake).next).toBe('operator');
+    expect(stateGuidance('QUEUED', 'attempt_pending', noIntake).next).toBe('wait');
 
     const noDispatch = { ...ALL_WORKERS_ENABLED, dispatch: false };
     expect(stateGuidance('QUEUED', 'attempt_pending', noDispatch).next).toBe('operator');

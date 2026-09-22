@@ -9,12 +9,13 @@ export interface StateGuidance {
   text: string;
 }
 
-export type Worker = 'dispatch' | 'tracking' | 'reconcile' | 'verification';
+export type Worker = 'intake' | 'dispatch' | 'tracking' | 'reconcile' | 'verification';
 
 /** Which background workers are enabled in this process (poller interval > 0, VERIFICATION_ENABLED). */
 export type WorkerAvailability = Record<Worker, boolean>;
 
 export const ALL_WORKERS_ENABLED: WorkerAvailability = {
+  intake: true,
   dispatch: true,
   tracking: true,
   reconcile: true,
@@ -22,6 +23,7 @@ export const ALL_WORKERS_ENABLED: WorkerAvailability = {
 };
 
 const WORKER_SETTING: Record<Worker, string> = {
+  intake: 'intake poller: GITHUB_POLL_INTERVAL_MS + GitHub credentials/repo',
   dispatch: 'dispatch poller: DEVIN_DISPATCH_INTERVAL_MS + GitHub/Devin credentials',
   tracking: 'tracking poller: DEVIN_TRACKING_INTERVAL_MS + GitHub/Devin credentials',
   reconcile: 'reconciliation poller: DEVIN_RECONCILE_INTERVAL_MS + Devin credentials',
@@ -42,8 +44,9 @@ const BY_REASON = {
     text: 'Queued. The dispatch poller (DEVIN_DISPATCH_INTERVAL_MS) will re-check the issue and create a Devin session on its next pass.',
   },
   task_without_attempt: {
-    next: 'operator',
-    text: 'The task row exists but has no attempt, so the dispatch poller cannot pick it up. Intake creates the missing attempt the next time it sees the issue with the trigger label (GitHub polling or webhook); if intake is not running, re-label the issue once intake is enabled or seed the attempt manually.',
+    next: 'wait',
+    requires: ['intake'],
+    text: 'The task row exists but has no attempt yet, so dispatch cannot pick it up. The intake poller creates the missing attempt on its next pass over the labelled issue (a webhook delivery for the issue does the same).',
   },
   attempt_dispatching: {
     next: 'wait',

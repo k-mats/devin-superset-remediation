@@ -37,6 +37,7 @@ export async function buildServer() {
   // Flipped to true only when the corresponding poller actually starts below;
   // the dashboard reads this object per request.
   const workers: WorkerAvailability = {
+    intake: false,
     dispatch: false,
     tracking: false,
     reconcile: false,
@@ -98,6 +99,7 @@ export async function buildServer() {
       stopIntakePoller = () => {
         return poller.stop();
       };
+      workers.intake = true;
     }
   }
 
