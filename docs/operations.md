@@ -37,7 +37,7 @@ session/PR tracking are skipped (each logs a warning).
 | Group                      | Variables                                                                                                                                                                                        | Required?                               |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
 | Minimal (works as-is)      | `PORT`, `HOST`, `NODE_ENV`, `DATABASE_PATH` (overridden in Docker), `LOG_LEVEL`                                                                                                                  | No — defaults in `.env.example` suffice |
-| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL`                                                                                                                   | Only for real orchestration             |
+| GitHub intake              | `GITHUB_TOKEN`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME`, `GITHUB_INTAKE_LABEL`, `GITHUB_VERIFIED_LABEL`                                                                                          | Only for real orchestration             |
 | Optional webhook fast path | `GITHUB_WEBHOOK_SECRET` (with `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`) — see [GitHub webhook intake](#github-webhook-intake-issue-22)                                                           | No — polling remains the fallback       |
 | Devin dispatch             | `DEVIN_API_KEY`, `DEVIN_ORG_ID`, `DEVIN_API_URL`, `DEVIN_MAX_ACU_PER_SESSION`                                                                                                                    | Only for real orchestration             |
 | Optional: polling / tuning | `GITHUB_POLL_INTERVAL_MS`, `DEVIN_DISPATCH_INTERVAL_MS`, `DEVIN_TRACKING_INTERVAL_MS`, `DEVIN_RECONCILE_INTERVAL_MS`, `DEVIN_DISPATCH_GRACE_MS`, `DEVIN_SESSION_STALE_WARN_MS`, `VERIFICATION_*` | No — sensible defaults                  |
@@ -424,6 +424,17 @@ can be triggered with:
 ```bash
 pnpm demo:verification --attempt <id>          # append [--rerun] to re-execute even after a recorded result
 ```
+
+`GITHUB_VERIFIED_LABEL` (default `devin-verified`) tracks the current PR head's
+verification state: the tracker adds the label to the remediation PR when the
+attempt is `completed`/`succeeded` and the current head has a passed independent
+verification, and removes it again if the PR later advances to a head that has
+not been verified. The applied label name is persisted per attempt, so changing
+`GITHUB_VERIFIED_LABEL` swaps the old label for the new one on the next poll.
+Label changes are skipped for a PR whose refresh failed in that poll. Both
+operations are idempotent and retried on each tracking poll until they succeed;
+they require the token to have issues write permission on the fork. Set
+`GITHUB_VERIFIED_LABEL` to an empty value to disable labelling.
 
 ### Observability / reporting (Issue #15)
 

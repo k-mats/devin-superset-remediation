@@ -152,6 +152,7 @@ export async function buildServer() {
         github: getGitHubClient(),
         devin: createDevinClientFromConfig(config),
         staleWarnMs: config.devinSessionStaleWarnMs,
+        verifiedLabel: config.githubVerifiedLabel,
         intervalMs: config.devinTrackingIntervalMs,
         logger: server.log,
         verification: config.verificationEnabled

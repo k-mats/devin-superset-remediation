@@ -74,6 +74,7 @@ async function main(): Promise<number> {
         logger,
         db,
         staleWarnMs: config.devinSessionStaleWarnMs,
+        verifiedLabel: config.githubVerifiedLabel,
         verification: config.verificationEnabled
           ? {
               workspaceRoot: config.verificationWorkspaceRoot,

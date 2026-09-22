@@ -797,3 +797,51 @@ export function findCompletedAttemptsWithTrackedPullRequests(
     .orderBy(asc(attempts.createdAt), asc(attempts.id))
     .all();
 }
+
+export function findSucceededAttemptsWithPullRequests(
+  db: DbExecutor = getDb()
+): Array<{ attempt: Attempt; task: Task }> {
+  return db
+    .select({ attempt: attempts, task: tasks })
+    .from(attempts)
+    .innerJoin(tasks, eq(attempts.taskId, tasks.id))
+    .where(
+      and(
+        eq(attempts.state, 'completed'),
+        eq(attempts.outcome, 'succeeded'),
+        isNotNull(attempts.prNumber)
+      )
+    )
+    .orderBy(asc(attempts.createdAt), asc(attempts.id))
+    .all();
+}
+
+export function markVerifiedLabelApplied(
+  attemptId: number,
+  label: string,
+  db: DbExecutor = getDb()
+): Attempt {
+  requireAttempt(attemptId, db);
+  const result = db
+    .update(attempts)
+    .set({ prVerifiedLabel: label, updatedAt: Date.now() })
+    .where(eq(attempts.id, attemptId))
+    .run();
+  if (result.changes !== 1) {
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
+  }
+  return requireAttempt(attemptId, db);
+}
+
+export function clearVerifiedLabelApplied(attemptId: number, db: DbExecutor = getDb()): Attempt {
+  requireAttempt(attemptId, db);
+  const result = db
+    .update(attempts)
+    .set({ prVerifiedLabel: null, updatedAt: Date.now() })
+    .where(eq(attempts.id, attemptId))
+    .run();
+  if (result.changes !== 1) {
+    throw new Error(`Attempt ${String(attemptId)} could not be updated`);
+  }
+  return requireAttempt(attemptId, db);
+}

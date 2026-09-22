@@ -690,6 +690,7 @@ describe('prompt and tag builders', () => {
       prState: null,
       prHeadSha: null,
       prLastCheckedAt: null,
+      prVerifiedLabel: null,
       createdAt: 0,
       updatedAt: 0,
       dispatchedAt: null,
