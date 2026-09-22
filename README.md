@@ -107,6 +107,14 @@ Superset setup inside the verification step can take a long time (up to the
 30 min `VERIFICATION_SETUP_TIMEOUT_MS` default). Watch progress with
 `docker compose logs -f app`.
 
+Each stage above has been exercised against the real Superset fork and Devin
+API; the recordings are in [docs/evidence/](docs/evidence/) (dispatch:
+[issue-8-9](docs/evidence/issue-8-9-real-dispatch.md), session/PR tracking:
+[issue-11](docs/evidence/issue-11-session-pr-lifecycle.md), independent
+verification: [issue-13](docs/evidence/issue-13-independent-verification.md),
+Docker startup: [issue-17](docs/evidence/issue-17-docker.md)). The walkthrough
+was not re-run end to end for this version of the README.
+
 ## Configuration reference
 
 All variables are documented in [.env.example](.env.example). Summary:
