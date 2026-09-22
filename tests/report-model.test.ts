@@ -219,6 +219,7 @@ describe('report model', () => {
         tasksReachedTerminal: 'tasks',
         tasksVerified: 'tasks',
         attemptsCreated: 'attempts',
+        observedAcuTerminalAttempts: 'acus',
       },
     });
   });
@@ -373,7 +374,191 @@ describe('report model', () => {
       .where(eq(tasks.id, task.id))
       .run();
     const report = buildReport({ now });
-    expect(report.throughput.tasksDiscovered).toEqual({ last24h: 0, last7d: 1 });
+    expect(report.throughput.tasksDiscovered).toEqual({
+      last24h: 0,
+      last7d: 1,
+      last30d: 1,
+      total: 1,
+    });
+  });
+
+  it('counts attemptsCreated across 24h/7d/30d/Total windows at boundaries', () => {
+    const day = 24 * 60 * 60 * 1000;
+    const now = 100 * day;
+    const createdAts = [
+      now - day, // exactly at the 24h boundary → inside 24h
+      now - day - 1, // outside 24h, inside 7d
+      now - 7 * day - 1, // outside 7d, inside 30d
+      now - 30 * day - 1, // outside 30d, total only
+      now + 1, // future → excluded everywhere
+    ];
+    createdAts.forEach((createdAt, index) => {
+      const task = makeTask(50 + index);
+      const attempt = attemptFor(task.id);
+      db().update(tasks).set({ createdAt }).where(eq(tasks.id, task.id)).run();
+      db().update(attempts).set({ createdAt }).where(eq(attempts.id, attempt.id)).run();
+    });
+
+    const report = buildReport({ now });
+    expect(report.throughput.attemptsCreated).toEqual({
+      last24h: 1,
+      last7d: 2,
+      last30d: 3,
+      total: 4,
+    });
+    expect(report.throughput.tasksDiscovered).toEqual({
+      last24h: 1,
+      last7d: 2,
+      last30d: 3,
+      total: 4,
+    });
+    const { last24h, last7d, last30d, total } = report.throughput.attemptsCreated;
+    expect(total).toBeGreaterThanOrEqual(last30d);
+    expect(last30d).toBeGreaterThanOrEqual(last7d);
+    expect(last7d).toBeGreaterThanOrEqual(last24h);
+  });
+
+  it('counts attempt-less tasks in tasksDiscovered but not in totalTasks', () => {
+    makeTask(60);
+    const orphan = upsertTask({
+      repoOwner: 'owner',
+      repoName: 'repo',
+      issueNumber: 61,
+      title: 'orphan',
+    });
+    const now = Date.now();
+    db().update(tasks).set({ createdAt: now }).where(eq(tasks.id, orphan.id)).run();
+
+    const report = buildReport({ now });
+    expect(report.throughput.tasksDiscovered).toEqual({
+      last24h: 2,
+      last7d: 2,
+      last30d: 2,
+      total: 2,
+    });
+    expect(report.summary.totalTasks).toBe(1);
+    expect(report.tasksWithoutAttempts).toBe(1);
+  });
+
+  it('counts retried terminal attempts once per task and VERIFIED alike', () => {
+    const task = makeTask(62);
+    const first = attemptFor(task.id);
+    completeAttempt(first.id, 'failed');
+    const second = createAttempt(task.id);
+    verify(second.id, 'session-retry-windows');
+    const now = 100 * 24 * 60 * 60 * 1000;
+    db()
+      .update(attempts)
+      .set({ completedAt: now - 1, updatedAt: now - 1, createdAt: now - 2 })
+      .where(eq(attempts.id, first.id))
+      .run();
+    db()
+      .update(attempts)
+      .set({ completedAt: now - 1, updatedAt: now - 1, createdAt: now - 2 })
+      .where(eq(attempts.id, second.id))
+      .run();
+    db()
+      .update(verifications)
+      .set({ finishedAt: now - 1 })
+      .where(eq(verifications.attemptId, second.id))
+      .run();
+
+    const report = buildReport({ now });
+    expect(report.throughput.tasksReachedTerminal).toEqual({
+      last24h: 1,
+      last7d: 1,
+      last30d: 1,
+      total: 1,
+    });
+    expect(report.throughput.tasksVerified).toEqual({
+      last24h: 1,
+      last7d: 1,
+      last30d: 1,
+      total: 1,
+    });
+    expect(report.throughput.attemptsCreated).toEqual({
+      last24h: 2,
+      last7d: 2,
+      last30d: 2,
+      total: 2,
+    });
+  });
+
+  it('sums observed ACU over eligible terminal attempts only', () => {
+    // eligible + observed: terminal attempt with a session and ACU 1.5
+    const observedTask = makeTask(70);
+    const observed = attemptFor(observedTask.id);
+    markDispatching(observed.id);
+    markSessionCreated(observed.id, {
+      devinSessionId: 'session-observed',
+      devinSessionUrl: 'https://app.devin.ai/sessions/session-observed',
+    });
+    markRunning(observed.id);
+    recordSessionSnapshot(observed.id, {
+      status: 'running',
+      statusDetail: null,
+      acusConsumed: 1.5,
+      sessionUpdatedAt: Date.now(),
+    });
+    completeAttempt(observed.id, 'failed');
+    // eligible but not observed: terminal attempt with a session but no ACU
+    const silentTask = makeTask(71);
+    const silent = attemptFor(silentTask.id);
+    markDispatching(silent.id);
+    markSessionCreated(silent.id, {
+      devinSessionId: 'session-silent',
+      devinSessionUrl: 'https://app.devin.ai/sessions/session-silent',
+    });
+    completeAttempt(silent.id, 'failed');
+    // not eligible: running attempt with ACU 9 but no terminal timestamp
+    const runningTask = makeTask(72);
+    const running = attemptFor(runningTask.id);
+    markDispatching(running.id);
+    markSessionCreated(running.id, {
+      devinSessionId: 'session-running',
+      devinSessionUrl: 'https://app.devin.ai/sessions/session-running',
+    });
+    markRunning(running.id);
+    recordSessionSnapshot(running.id, {
+      status: 'running',
+      statusDetail: null,
+      acusConsumed: 9,
+      sessionUpdatedAt: Date.now(),
+    });
+    // not eligible: terminal attempt without a Devin session
+    const noSessionTask = makeTask(73);
+    const noSession = attemptFor(noSessionTask.id);
+    completeAttempt(noSession.id, 'failed');
+
+    const report = buildReport({ now: Date.now() });
+    const acu = report.throughput.observedAcuTerminalAttempts;
+    expect(acu.unit).toBe('acus');
+    expect(acu.semantics).toBe('observed_lower_bound');
+    expect(acu.attribution).toBe('attempt_terminal_at');
+    expect(acu.eligibility).toBe('terminal_attempts_with_terminal_at_and_devin_session');
+    expect(acu.acus.total).toBe(1.5);
+    expect(acu.observedAttempts.total).toBe(1);
+    expect(acu.eligibleAttempts.total).toBe(2);
+    expect(acu.acus.last24h).toBe(1.5);
+    expect(acu.acus.last7d).toBe(1.5);
+    expect(acu.acus.last30d).toBe(1.5);
+  });
+
+  it('reports null ACU when no eligible attempt has an observed value', () => {
+    const task = makeTask(74);
+    const attempt = attemptFor(task.id);
+    markDispatching(attempt.id);
+    markSessionCreated(attempt.id, {
+      devinSessionId: 'session-null-acu',
+      devinSessionUrl: 'https://app.devin.ai/sessions/session-null-acu',
+    });
+    completeAttempt(attempt.id, 'failed');
+
+    const report = buildReport({ now: Date.now() });
+    const acu = report.throughput.observedAcuTerminalAttempts;
+    expect(acu.acus).toEqual({ last24h: null, last7d: null, last30d: null, total: null });
+    expect(acu.observedAttempts.total).toBe(0);
+    expect(acu.eligibleAttempts.total).toBe(1);
   });
 
   it('calculates cycle-time median and null for an empty sample', () => {

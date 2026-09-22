@@ -196,6 +196,28 @@ export interface LedgerRow {
 export interface WindowCounts {
   last24h: number;
   last7d: number;
+  last30d: number;
+  total: number;
+}
+
+/**
+ * Observed ACU is a lower bound over provider snapshots (`acus_consumed`)
+ * for attempts that reached a terminal state, attributed by terminal time.
+ * It is not billing data; null means no eligible attempt had an observed value.
+ */
+export interface ObservedAcuUsage {
+  unit: 'acus';
+  semantics: 'observed_lower_bound';
+  attribution: 'attempt_terminal_at';
+  eligibility: 'terminal_attempts_with_terminal_at_and_devin_session';
+  acus: {
+    last24h: number | null;
+    last7d: number | null;
+    last30d: number | null;
+    total: number | null;
+  };
+  observedAttempts: WindowCounts;
+  eligibleAttempts: WindowCounts;
 }
 
 /**
@@ -218,6 +240,7 @@ export interface Report {
       tasksReachedTerminal: 'tasks';
       tasksVerified: 'tasks';
       attemptsCreated: 'attempts';
+      observedAcuTerminalAttempts: 'acus';
     };
   };
   summary: {
@@ -231,6 +254,7 @@ export interface Report {
     tasksReachedTerminal: WindowCounts;
     tasksVerified: WindowCounts;
     attemptsCreated: WindowCounts;
+    observedAcuTerminalAttempts: ObservedAcuUsage;
   };
   cycleTime: {
     medianMsIntakeToTerminal: number | null;
@@ -431,8 +455,89 @@ function median(values: number[]): number | null {
   return Math.floor(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2);
 }
 
-function inWindow(timestamp: number | null, now: number, windowMs: number): boolean {
-  return timestamp !== null && timestamp >= now - windowMs && timestamp <= now;
+const WINDOWS: Record<keyof WindowCounts, number | null> = {
+  last24h: dayMs,
+  last7d: dayMs * 7,
+  last30d: dayMs * 30,
+  total: null,
+};
+const WINDOW_KEYS = Object.keys(WINDOWS) as (keyof WindowCounts)[];
+
+function inWindowMs(timestamp: number, now: number, windowMs: number | null): boolean {
+  return timestamp <= now && (windowMs === null || timestamp >= now - windowMs);
+}
+
+function emptyWindowCounts(): WindowCounts {
+  return { last24h: 0, last7d: 0, last30d: 0, total: 0 };
+}
+
+function countByWindow(timestamps: Array<number | null>, now: number): WindowCounts {
+  const counts = emptyWindowCounts();
+  for (const timestamp of timestamps) {
+    if (timestamp === null) continue;
+    for (const key of WINDOW_KEYS) {
+      if (inWindowMs(timestamp, now, WINDOWS[key])) counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
+function countTasksByWindow(
+  rows: ReportTaskRow[],
+  timestampFor: (attempt: ReportAttemptRow) => number | null,
+  now: number
+): WindowCounts {
+  const counts = emptyWindowCounts();
+  for (const row of rows) {
+    for (const key of WINDOW_KEYS) {
+      const windowMs = WINDOWS[key];
+      const hasTimestampInWindow = row.attempts.some((attempt) => {
+        const timestamp = timestampFor(attempt);
+        return timestamp !== null && inWindowMs(timestamp, now, windowMs);
+      });
+      if (hasTimestampInWindow) counts[key] += 1;
+    }
+  }
+  return counts;
+}
+
+interface AcuCandidate {
+  terminalAt: number | null;
+  devinSessionId: string | null;
+  acusConsumed: number | null;
+}
+
+function observedAcuUsage(candidates: AcuCandidate[], now: number): ObservedAcuUsage {
+  const eligible = candidates.filter(
+    (candidate) => candidate.terminalAt !== null && candidate.devinSessionId !== null
+  );
+  const observed = eligible.filter((candidate) => candidate.acusConsumed !== null);
+  const eligibleAttempts = countByWindow(
+    eligible.map((candidate) => candidate.terminalAt),
+    now
+  );
+  const observedAttempts = countByWindow(
+    observed.map((candidate) => candidate.terminalAt),
+    now
+  );
+  const acus = emptyWindowCounts() as Record<keyof WindowCounts, number | null>;
+  for (const key of WINDOW_KEYS) {
+    acus[key] =
+      observedAttempts[key] === 0
+        ? null
+        : observed
+            .filter((candidate) => inWindowMs(candidate.terminalAt ?? 0, now, WINDOWS[key]))
+            .reduce((sum, candidate) => sum + (candidate.acusConsumed ?? 0), 0);
+  }
+  return {
+    unit: 'acus',
+    semantics: 'observed_lower_bound',
+    attribution: 'attempt_terminal_at',
+    eligibility: 'terminal_attempts_with_terminal_at_and_devin_session',
+    acus,
+    observedAttempts,
+    eligibleAttempts,
+  };
 }
 
 function latestAttempt(attemptRows: Attempt[]): Attempt {
@@ -450,10 +555,13 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
   const stateCounts = emptyStateCounts();
   const rows: ReportTaskRow[] = [];
   const ledgerRows: LedgerRow[] = [];
+  const taskCreatedAts: number[] = [];
+  const acuCandidates: AcuCandidate[] = [];
   let tasksWithoutAttempts = 0;
   let terminalWithoutTimestamp = 0;
 
   for (const task of taskRows) {
+    taskCreatedAts.push(task.createdAt);
     const attemptRows = listAttempts(task.id, db);
     const issueUrl = `https://github.com/${task.repoOwner}/${task.repoName}/issues/${String(task.issueNumber)}`;
     if (attemptRows.length === 0) {
@@ -488,6 +596,13 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       const projection = projectTaskState(attempt, db);
       return toAttemptRow(attempt, projection, db);
     });
+    for (const [index, reportAttempt] of reportAttempts.entries()) {
+      acuCandidates.push({
+        terminalAt: reportAttempt.terminalAt,
+        devinSessionId: reportAttempt.devinSessionId,
+        acusConsumed: attemptRows[index]?.acusConsumed ?? null,
+      });
+    }
     const currentReportAttempt = reportAttempts.find((attempt) => attempt.id === currentAttempt.id);
     if (!currentReportAttempt) throw new Error('Current attempt is missing from report history');
     const currentProjection = currentReportAttempt.projection;
@@ -554,18 +669,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
 
   const reportAttemptTimestampCounts = (
     timestampFor: (attempt: ReportAttemptRow) => number | null
-  ): WindowCounts => ({
-    last24h: rows.filter((row) =>
-      row.attempts.some((attempt) => inWindow(timestampFor(attempt), now, dayMs))
-    ).length,
-    last7d: rows.filter((row) =>
-      row.attempts.some((attempt) => inWindow(timestampFor(attempt), now, dayMs * 7))
-    ).length,
-  });
-  const countWindow = (timestamps: Array<number | null>): WindowCounts => ({
-    last24h: timestamps.filter((timestamp) => inWindow(timestamp, now, dayMs)).length,
-    last7d: timestamps.filter((timestamp) => inWindow(timestamp, now, dayMs * 7)).length,
-  });
+  ): WindowCounts => countTasksByWindow(rows, timestampFor, now);
   const cycleTimes = rows.flatMap((row) =>
     row.attempts.flatMap((attempt) =>
       attempt.terminalAt === null ? [] : [attempt.terminalAt - row.discoveredAt]
@@ -591,6 +695,7 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
         tasksReachedTerminal: 'tasks',
         tasksVerified: 'tasks',
         attemptsCreated: 'attempts',
+        observedAcuTerminalAttempts: 'acus',
       },
     },
     summary: {
@@ -600,12 +705,14 @@ export function buildReport(options: { now?: number; db?: DbExecutor }): Report 
       terminalWithoutTimestamp,
     },
     throughput: {
-      tasksDiscovered: countWindow(rows.map((row) => row.discoveredAt)),
+      tasksDiscovered: countByWindow(taskCreatedAts, now),
       tasksReachedTerminal: reportAttemptTimestampCounts((attempt) => attempt.terminalAt),
       tasksVerified: reportAttemptTimestampCounts((attempt) => attempt.verifiedAt),
-      attemptsCreated: countWindow(
-        rows.flatMap((row) => row.attempts.map((attempt) => attempt.createdAt))
+      attemptsCreated: countByWindow(
+        rows.flatMap((row) => row.attempts.map((attempt) => attempt.createdAt)),
+        now
       ),
+      observedAcuTerminalAttempts: observedAcuUsage(acuCandidates, now),
     },
     cycleTime: {
       medianMsIntakeToTerminal: median(cycleTimes),

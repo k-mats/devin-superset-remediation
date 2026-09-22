@@ -241,8 +241,9 @@ raw structured output, or agent diagnoses.
 - `NEEDS_HUMAN`, `NO_ACTION`, `VERIFICATION_FAILED`, `FAILED`, and `CANCELLED`
   are terminal, visible outcomes — never silently retried.
 - Dashboard cards and report summary count **tasks**; throughput counts
-  historical events and never decreases when a retry changes the current
-  attempt.
+  historical events over 24h / 7d / 30d / Total windows (plus an observed-ACU
+  lower bound for terminal attempts) and never decreases when a retry changes
+  the current attempt.
 
 The precise state definitions are in
 [architecture.md — Normalized task state](architecture.md#normalized-task-state).

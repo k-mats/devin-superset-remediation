@@ -143,6 +143,10 @@ Terminal time comes only from persisted immutable timestamps (`completed_at` on
 the attempt or the decisive verification row). Derived terminal states without
 one are counted in the summary cards but excluded from terminal throughput and
 cycle time, and surfaced via `terminalWithoutTimestamp`.
+Throughput measures are reported over 24h / 7d / 30d / Total windows; an
+additional observed-ACU measure sums the latest persisted provider snapshot
+(`acus_consumed`) for attempts that reached a terminal state in the window —
+a lower bound attributed by terminal time, not billing data.
 Cycle time uses all historical terminal attempts.
 
 ### Verification
