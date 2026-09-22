@@ -1,0 +1,1 @@
+ALTER TABLE `attempts` ADD `pr_verified_label` text;

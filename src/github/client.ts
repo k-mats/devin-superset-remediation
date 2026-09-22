@@ -167,9 +167,16 @@ export class GitHubClient {
     try {
       await this.request(path, { method: 'DELETE' });
     } catch (error: unknown) {
-      // A 404 means the label is already absent; removal is idempotent.
-      if (error instanceof GitHubApiError && error.status === 404) return;
-      throw error;
+      // A 404 is ambiguous: the label may be absent (idempotent success) or the
+      // issue itself may be invisible to this token. Confirm via the issue.
+      if (!(error instanceof GitHubApiError) || error.status !== 404) throw error;
+      let issue: GitHubIssue;
+      try {
+        issue = await this.getIssue(owner, repo, issueNumber);
+      } catch {
+        throw error;
+      }
+      if (issue.labels.some((entry) => entry.name === label)) throw error;
     }
   }
 

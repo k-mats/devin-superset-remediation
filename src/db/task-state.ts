@@ -816,12 +816,15 @@ export function findSucceededAttemptsWithPullRequests(
     .all();
 }
 
-export function markVerifiedLabelApplied(attemptId: number, db: DbExecutor = getDb()): Attempt {
+export function markVerifiedLabelApplied(
+  attemptId: number,
+  label: string,
+  db: DbExecutor = getDb()
+): Attempt {
   requireAttempt(attemptId, db);
-  const now = Date.now();
   const result = db
     .update(attempts)
-    .set({ prVerifiedLabelAppliedAt: now, updatedAt: now })
+    .set({ prVerifiedLabel: label, updatedAt: Date.now() })
     .where(eq(attempts.id, attemptId))
     .run();
   if (result.changes !== 1) {
@@ -834,7 +837,7 @@ export function clearVerifiedLabelApplied(attemptId: number, db: DbExecutor = ge
   requireAttempt(attemptId, db);
   const result = db
     .update(attempts)
-    .set({ prVerifiedLabelAppliedAt: null, updatedAt: Date.now() })
+    .set({ prVerifiedLabel: null, updatedAt: Date.now() })
     .where(eq(attempts.id, attemptId))
     .run();
   if (result.changes !== 1) {

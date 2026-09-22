@@ -1,1 +1,0 @@
-ALTER TABLE `attempts` ADD `pr_verified_label_applied_at` integer;

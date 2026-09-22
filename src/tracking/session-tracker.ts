@@ -368,14 +368,19 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     countDecision(result, decision);
   }
 
+  // Attempts whose head could not be refreshed this pass must not have labels
+  // reconciled against a stale prHeadSha.
+  const refreshDeferred = new Set<number>();
   for (const { attempt, task } of trackedRows) {
     try {
       const decision = await refreshPullRequest(attempt, task, opts, db);
+      if (decision === 'pr_lookup_deferred') refreshDeferred.add(attempt.id);
       if (decision) {
         countDecision(result, decision);
         logNormalizedState(attempt.id, decision, opts, db);
       }
     } catch (error: unknown) {
+      refreshDeferred.add(attempt.id);
       opts.logger.error(
         { err: error, ...logContext(attempt) },
         'Pull request refresh failed for attempt'
@@ -392,37 +397,40 @@ export async function runTrackingOnce(opts: SessionTrackerOptions): Promise<Trac
     for (const { attempt, task } of findSucceededAttemptsWithPullRequests(db)) {
       const prNumber = attempt.prNumber;
       if (prNumber === null) continue;
-      const current = getAttempt(attempt.id, db);
+      let current = getAttempt(attempt.id, db);
       if (!current) continue;
+      if (refreshDeferred.has(attempt.id)) {
+        opts.logger.debug(
+          { ...logContext(current), pr_number: prNumber },
+          'Skipping verified label reconciliation; pull request refresh deferred'
+        );
+        continue;
+      }
       const verified = projectTaskState(current, db).state === 'VERIFIED';
+      const want = verified ? opts.verifiedLabel : null;
       try {
-        if (verified && current.prVerifiedLabelAppliedAt === null && opts.github.addLabels) {
-          await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [
-            opts.verifiedLabel,
-          ]);
-          markVerifiedLabelApplied(attempt.id, db);
-          opts.logger.info(
-            { ...logContext(current), pr_number: prNumber, label: opts.verifiedLabel },
-            'Applied verified label to pull request'
-          );
-          result.verifiedLabelsApplied += 1;
-        } else if (
-          !verified &&
-          current.prVerifiedLabelAppliedAt !== null &&
+        if (
+          current.prVerifiedLabel !== null &&
+          current.prVerifiedLabel !== want &&
           opts.github.removeLabel
         ) {
-          await opts.github.removeLabel(
-            task.repoOwner,
-            task.repoName,
-            prNumber,
-            opts.verifiedLabel
-          );
-          clearVerifiedLabelApplied(attempt.id, db);
+          const applied = current.prVerifiedLabel;
+          await opts.github.removeLabel(task.repoOwner, task.repoName, prNumber, applied);
+          current = clearVerifiedLabelApplied(attempt.id, db);
           opts.logger.info(
-            { ...logContext(current), pr_number: prNumber, label: opts.verifiedLabel },
+            { ...logContext(current), pr_number: prNumber, label: applied },
             'Removed verified label from pull request'
           );
           result.verifiedLabelsRemoved += 1;
+        }
+        if (want !== null && current.prVerifiedLabel !== want && opts.github.addLabels) {
+          await opts.github.addLabels(task.repoOwner, task.repoName, prNumber, [want]);
+          markVerifiedLabelApplied(attempt.id, want, db);
+          opts.logger.info(
+            { ...logContext(current), pr_number: prNumber, label: want },
+            'Applied verified label to pull request'
+          );
+          result.verifiedLabelsApplied += 1;
         }
       } catch (error: unknown) {
         opts.logger.warn(

@@ -427,7 +427,7 @@ describe('session tracker', () => {
     expect(addLabels).toHaveBeenCalledTimes(1);
     expect(addLabels).toHaveBeenCalledWith('owner', 'repo', 12, ['devin-verified']);
     expect(result.verifiedLabelsApplied).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).not.toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBe('devin-verified');
 
     const second = await runTrackingOnce(opts);
     expect(addLabels).toHaveBeenCalledTimes(1);
@@ -454,12 +454,12 @@ describe('session tracker', () => {
     expect(addLabels).not.toHaveBeenCalled();
     expect(removeLabel).not.toHaveBeenCalled();
     expect(result.verifiedLabelsApplied).toBe(0);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBeNull();
   });
 
   it('removes the label from a labelled attempt whose PR head was superseded', async () => {
     const { attempt } = completedVerifiedAttempt(45, { superseded: true });
-    markVerifiedLabelApplied(attempt.id);
+    markVerifiedLabelApplied(attempt.id, 'devin-verified');
     const addLabels = vi.fn().mockResolvedValue(undefined);
     const removeLabel = vi.fn().mockResolvedValue(undefined);
     const opts = {
@@ -480,7 +480,7 @@ describe('session tracker', () => {
     expect(removeLabel).toHaveBeenCalledWith('owner', 'repo', 12, 'devin-verified');
     expect(addLabels).not.toHaveBeenCalled();
     expect(result.verifiedLabelsRemoved).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBeNull();
 
     const second = await runTrackingOnce(opts);
     expect(removeLabel).toHaveBeenCalledTimes(1);
@@ -490,7 +490,7 @@ describe('session tracker', () => {
 
   it('keeps the marker set and retries after a label removal failure', async () => {
     const { attempt } = completedVerifiedAttempt(46, { superseded: true });
-    markVerifiedLabelApplied(attempt.id);
+    markVerifiedLabelApplied(attempt.id, 'devin-verified');
     const removeLabel = vi
       .fn()
       .mockRejectedValueOnce(new GitHubApiError(500, 'DELETE', '/issues/12/labels/x', 'oops'))
@@ -510,12 +510,60 @@ describe('session tracker', () => {
 
     expect(first.verifiedLabelsRemoved).toBe(0);
     expect(first.failed).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).not.toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBe('devin-verified');
 
     const second = await runTrackingOnce(opts);
     expect(removeLabel).toHaveBeenCalledTimes(2);
     expect(second.verifiedLabelsRemoved).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBeNull();
+  });
+
+  it('skips label reconciliation when the pull request refresh is deferred', async () => {
+    completedVerifiedAttempt(47);
+    const addLabels = vi.fn().mockResolvedValue(undefined);
+    const getPullRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new GitHubApiError(503, 'GET', '/pulls/12', 'unavailable'))
+      .mockResolvedValue(pullRequest());
+    const opts = {
+      devin: { getSession: vi.fn() },
+      github: { getPullRequest, addLabels },
+      logger: logger(),
+      staleWarnMs: 0,
+      verifiedLabel: 'devin-verified',
+    };
+
+    const first = await runTrackingOnce(opts);
+
+    expect(addLabels).not.toHaveBeenCalled();
+    expect(first.verifiedLabelsApplied).toBe(0);
+
+    const second = await runTrackingOnce(opts);
+    expect(addLabels).toHaveBeenCalledTimes(1);
+    expect(second.verifiedLabelsApplied).toBe(1);
+  });
+
+  it('swaps an applied label when the configured label name changes', async () => {
+    const { attempt } = completedVerifiedAttempt(48);
+    markVerifiedLabelApplied(attempt.id, 'devin-verified');
+    const addLabels = vi.fn().mockResolvedValue(undefined);
+    const removeLabel = vi.fn().mockResolvedValue(undefined);
+
+    const result = await runTrackingOnce({
+      devin: { getSession: vi.fn() },
+      github: { getPullRequest: vi.fn().mockResolvedValue(pullRequest()), addLabels, removeLabel },
+      logger: logger(),
+      staleWarnMs: 0,
+      verifiedLabel: 'independently-tested',
+    });
+
+    expect(removeLabel).toHaveBeenCalledTimes(1);
+    expect(removeLabel).toHaveBeenCalledWith('owner', 'repo', 12, 'devin-verified');
+    expect(addLabels).toHaveBeenCalledTimes(1);
+    expect(addLabels).toHaveBeenCalledWith('owner', 'repo', 12, ['independently-tested']);
+    expect(result.verifiedLabelsRemoved).toBe(1);
+    expect(result.verifiedLabelsApplied).toBe(1);
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBe('independently-tested');
   });
 
   it('leaves the marker unset and retries after a label application failure', async () => {
@@ -536,12 +584,12 @@ describe('session tracker', () => {
 
     expect(first.verifiedLabelsApplied).toBe(0);
     expect(first.failed).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBeNull();
 
     const second = await runTrackingOnce(opts);
     expect(addLabels).toHaveBeenCalledTimes(2);
     expect(second.verifiedLabelsApplied).toBe(1);
-    expect(getAttempt(attempt.id)?.prVerifiedLabelAppliedAt).not.toBeNull();
+    expect(getAttempt(attempt.id)?.prVerifiedLabel).toBe('devin-verified');
   });
 
   it('does not label when the verified label is disabled or unsupported', async () => {

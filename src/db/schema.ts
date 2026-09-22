@@ -75,7 +75,7 @@ export const attempts = sqliteTable(
     prState: text('pr_state').$type<'open' | 'closed' | 'merged'>(),
     prHeadSha: text('pr_head_sha'),
     prLastCheckedAt: integer('pr_last_checked_at'),
-    prVerifiedLabelAppliedAt: integer('pr_verified_label_applied_at'),
+    prVerifiedLabel: text('pr_verified_label'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     dispatchedAt: integer('dispatched_at'),

@@ -137,14 +137,51 @@ describe('GitHubClient', () => {
   });
 
   it('swallows a 404 when removing an already-absent label', async () => {
-    const fetchFn = vi.fn<typeof fetch>(() =>
-      Promise.resolve(new Response('Not Found', { status: 404 }))
-    );
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...issue, labels: [{ name: 'devin-ready' }] }), {
+          status: 200,
+        })
+      );
     const client = new GitHubClient({ token: 'test-token', fetchFn });
 
     await expect(
       client.removeLabel('owner', 'repo', 11, 'devin-verified')
     ).resolves.toBeUndefined();
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('rethrows the 404 when the issue still carries the label', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...issue, labels: [{ name: 'devin-verified' }] }), {
+          status: 200,
+        })
+      );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client
+      .removeLabel('owner', 'repo', 11, 'devin-verified')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(error).toMatchObject({ status: 404, method: 'DELETE' });
+  });
+
+  it('rethrows the 404 when the issue itself is invisible', async () => {
+    const fetchFn = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('Not Found', { status: 404 }))
+    );
+    const client = new GitHubClient({ token: 'test-token', fetchFn });
+
+    const error = await client
+      .removeLabel('owner', 'repo', 11, 'devin-verified')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(error).toMatchObject({ status: 404, method: 'DELETE' });
   });
 
   it('throws GitHubApiError with method DELETE for other removeLabel failures', async () => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8f18adad-dedf-4962-9b9f-dc94b0bb7870",
+  "id": "54600b0f-3a4a-4d26-8351-5ed3be42b839",
   "prevId": "3444da88-cdae-47d6-bb02-5a9177a040c0",
   "tables": {
     "attempts": {
@@ -141,9 +141,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "pr_verified_label_applied_at": {
-          "name": "pr_verified_label_applied_at",
-          "type": "integer",
+        "pr_verified_label": {
+          "name": "pr_verified_label",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
