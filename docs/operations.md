@@ -350,7 +350,9 @@ If an attempt is stuck in `dispatching` without a session and reconciliation
 keeps reporting `no_match` (an uncertain failure whose session was in fact
 never created, or a row left behind by a version that did not release 4xx
 rejections), the dashboard shows `DISPATCHING` indefinitely and intake skips
-the issue (`existing_attempt`). Recovery is an explicit operator step:
+the issue (`existing_attempt`). Recovery is an explicit operator step (refused
+while the attempt is younger than `DEVIN_DISPATCH_GRACE_MS`, since its
+create-session request may still be in flight):
 
 ```bash
 pnpm attempt:requeue --attempt <id>

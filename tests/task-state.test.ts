@@ -584,7 +584,19 @@ describe('task state repository', () => {
     const attempt = createAttempt(task.id);
     claimAttemptForDispatch(attempt.id);
 
-    const { failed, requeued } = requeueDispatchFailedAttempt(attempt.id);
+    const GRACE = 300_000;
+    const dispatchedAt = getDb().select().from(attempts).get()?.dispatchedAt ?? 0;
+    expect(() =>
+      requeueDispatchFailedAttempt(attempt.id, GRACE, getDb(), dispatchedAt + GRACE - 1)
+    ).toThrow(/within the 300000 ms dispatch grace period/);
+    expect(listAttempts(task.id)).toHaveLength(1);
+
+    const { failed, requeued } = requeueDispatchFailedAttempt(
+      attempt.id,
+      GRACE,
+      getDb(),
+      dispatchedAt + GRACE
+    );
     expect(failed).toMatchObject({
       id: attempt.id,
       state: 'completed',
@@ -600,12 +612,12 @@ describe('task state repository', () => {
   it('refuses to requeue attempts that are not dispatching or already have a session', () => {
     const task = upsertTask({ repoOwner: 'owner', repoName: 'repo', issueNumber: 1 });
     const attempt = createAttempt(task.id);
-    expect(() => requeueDispatchFailedAttempt(attempt.id)).toThrow(AttemptNotRequeueableError);
+    expect(() => requeueDispatchFailedAttempt(attempt.id, 0)).toThrow(AttemptNotRequeueableError);
     expect(listAttempts(task.id)).toHaveLength(1);
 
     claimAttemptForDispatch(attempt.id);
     markSessionCreated(attempt.id, { devinSessionId: 'devin-1' });
-    expect(() => requeueDispatchFailedAttempt(attempt.id)).toThrow(AttemptNotRequeueableError);
+    expect(() => requeueDispatchFailedAttempt(attempt.id, 0)).toThrow(AttemptNotRequeueableError);
     expect(getAttemptByCorrelationId(attempt.correlationId)?.state).toBe('session_created');
     expect(listAttempts(task.id)).toHaveLength(1);
   });

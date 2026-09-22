@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { parseArgs } from 'node:util';
+import { config } from '../config.js';
 import { closeDb, getDb, runMigrations } from '../db/client.js';
 import {
   AttemptNotRequeueableError,
@@ -28,8 +29,15 @@ function main(): number {
     }
     console.log(`Current state:        ${before.state}`);
     console.log(`Devin session id:     ${before.devinSessionId ?? '(none)'}`);
+    console.log(
+      `Dispatched at:        ${before.dispatchedAt ? new Date(before.dispatchedAt).toISOString() : '(none)'}`
+    );
     try {
-      const { failed, requeued } = requeueDispatchFailedAttempt(attemptId, db);
+      const { failed, requeued } = requeueDispatchFailedAttempt(
+        attemptId,
+        config.devinDispatchGraceMs,
+        db
+      );
       console.log(`Attempt ${String(failed.id)} completed as ${failed.outcome ?? '(none)'}`);
       console.log(`  outcome reason:     ${failed.outcomeReason ?? '(none)'}`);
       console.log(`New pending attempt:  ${String(requeued.id)}`);
