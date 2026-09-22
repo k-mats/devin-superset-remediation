@@ -11,6 +11,8 @@ import {
   type WorkerAvailability,
 } from './state-guidance.js';
 import type { NormalizedTaskState } from '../tracking/normalized-task-state.js';
+import { escapeHtml } from './html.js';
+import { renderStateDiagram, renderStateTransitionsList } from './state-diagram.js';
 
 export function safeHref(url: string | null): string | null {
   if (url === null) return null;
@@ -22,14 +24,7 @@ export function safeHref(url: string | null): string | null {
   }
 }
 
-export function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
+export { escapeHtml };
 
 function formatTime(timestamp: number | null): string {
   return timestamp === null ? '—' : new Date(timestamp).toISOString();
@@ -120,7 +115,7 @@ function renderStateCell(
   workers: WorkerAvailability
 ): string {
   const guidance = stateGuidance(state, reason, workers);
-  return `<strong>${escapeHtml(state)}</strong><small>${escapeHtml(reason)}</small><span class="next next-${guidance.next}" title="${escapeHtml(guidance.text)}">${escapeHtml(NEXT_ACTION_LABEL[guidance.next])}</span><details class="guidance"><summary>What now?</summary><p>${escapeHtml(guidance.text)}</p></details>`;
+  return `<strong>${escapeHtml(state)}</strong><small>${escapeHtml(reason)} · <a href="#state-${escapeHtml(state)}" title="Show this state on the state map">map</a></small><span class="next next-${guidance.next}" title="${escapeHtml(guidance.text)}">${escapeHtml(NEXT_ACTION_LABEL[guidance.next])}</span><details class="guidance"><summary>What now?</summary><p>${escapeHtml(guidance.text)}</p></details>`;
 }
 
 function renderHistoryAttempt(attempt: LedgerAttemptEvidence): string {
@@ -275,6 +270,13 @@ a{color:#0969da}details{margin-top:.4rem}ul,ol{margin:.3rem 0;padding-left:1.3re
 .next{display:inline-block;margin-top:.3rem;padding:.1rem .45rem;border-radius:4px;font-size:.8em;font-weight:600}
 .next-wait{background:#ddf4ff;color:#0550ae}.next-operator{background:#fff8c5;color:#7d4e00}.next-human{background:#ffebe9;color:#a40e26}.next-done{background:#dafbe1;color:#1a7f37}
 .guidance summary{cursor:pointer;color:#5f6b76;font-size:.85em}.guidance p{margin:.2rem 0 0;font-size:.9em;max-width:32rem}
+.state-map{overflow-x:auto;background:white;border:1px solid #d8dee4;border-radius:6px;padding:.5rem;margin:.5rem 0}
+.state-diagram{font:11px system-ui,sans-serif;display:block}.state-diagram .edge line{stroke:#8c959f;stroke-width:1.2}.state-diagram .edge:hover line{stroke:#0969da;stroke-width:2.5}.transitions ul{columns:2;font-size:.9em}.state-diagram #arrow path{fill:#8c959f}
+.state-diagram .state-node rect{fill:#f6f8fa;stroke:#8c959f;stroke-width:1.2}.state-diagram .state-node.kind-success rect{stroke:#1a7f37}.state-diagram .state-node.kind-terminal rect{stroke-dasharray:4 3}
+.state-diagram .state-node.occupied rect{fill:#ddf4ff;stroke:#0969da;stroke-width:2}.state-diagram .state-node.kind-success.occupied rect{fill:#dafbe1;stroke:#1a7f37}.state-diagram .state-node.kind-terminal.occupied rect{fill:#fff8c5;stroke:#9a6700}
+.state-diagram .state-node{scroll-margin-top:1.5rem}.state-diagram .state-node:target rect{stroke:#cf222e;stroke-width:3;filter:drop-shadow(0 0 4px #cf222e)}.state-diagram .state-node:target .name{fill:#cf222e}
+.state-diagram text{text-anchor:middle}.state-diagram .name{font-weight:700;fill:#18212b}.state-diagram .count{fill:#5f6b76;font-size:10px}
+.state-diagram .state-node:not(.occupied) .count{fill:#b1b8bf}
 section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor:pointer}section.collapsible>details>summary h2{display:inline;margin:0}
 </style>
 </head>
@@ -285,6 +287,11 @@ section.collapsible{margin-top:1.5rem}section.collapsible>details>summary{cursor
 <div class="cards">${summaryCards}</div>
 <p>Successful = VERIFIED only; a PR URL or open PR is not success. Terminal = automation reached an end state (includes needs-human/failed).</p>
 <h2>Tasks (${String(report.summary.totalTasks)})</h2>
+<details class="state-map-details" open><summary>State map — where tasks are in the lifecycle</summary>
+<div class="state-map">${renderStateDiagram(report.summary.byState)}</div>
+<p class="muted">Top row is the happy path left to right; dashed boxes are terminal. Shaded boxes contain tasks. Click "map" next to a task's state to highlight its box; hover an arrow (or expand Transitions) for what triggers each move. The raw attempt states behind this projection are in architecture.md ("Attempt state machine").</p>
+${renderStateTransitionsList()}
+</details>
 <p class="muted">The State column says who moves each task forward: <span class="next next-wait">Wait</span> automation continues on its own · <span class="next next-operator">Action needed</span> an operator step (usually on the Verification page) is required · <span class="next next-human">Needs human</span> automation stopped · <span class="next next-done">Terminal</span> nothing further happens. Expand "What now?" for details.</p>
 <table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Verification</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="8">No tasks</td></tr>'}</tbody></table>
 <p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)}</p>

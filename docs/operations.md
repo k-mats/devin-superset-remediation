@@ -493,8 +493,13 @@ DATABASE_PATH=./data/dashboard-fixtures.db \
 # open http://localhost:3000/dashboard
 ```
 
-The Verification pages of the seeded attempts work (approve the candidate on
-issue #105 and its row flips from "Action needed" to "Wait"); explicit reruns
+Because every poller is disabled in this mode, the dashboard is truthful about
+it: states that would normally show "Wait" show "Action needed" with a note that
+the required worker is not running. The State map above the Tasks table shows
+the seeded tasks spread over the whole lifecycle; click "map" next to any State
+to highlight that task's box. The Verification pages of the seeded attempts work
+(approve the candidate on issue #105 and its reason changes to
+`approved_spec_awaiting_run`); explicit reruns
 are unavailable because `VERIFICATION_ENABLED` execution needs a `GITHUB_TOKEN`.
 Re-running the script against the same database fails with
 `ActiveAttemptExistsError` — delete the file first.

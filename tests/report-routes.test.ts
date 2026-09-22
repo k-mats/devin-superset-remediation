@@ -119,6 +119,10 @@ describe('report routes', () => {
       'not running in this process (dispatch poller: DEVIN_DISPATCH_INTERVAL_MS'
     );
     expect(tasksTable).toContain('<summary>What now?</summary>');
+    expect(tasksTable).toContain('href="#state-QUEUED"');
+    expect(html).toContain('<svg class="state-diagram"');
+    expect(html).toMatch(/id="state-QUEUED" class="[^"]*occupied/);
+    expect(html).toContain('<summary>Transitions (');
     expect(tasksTable).toContain('The dispatch poller');
   });
 
