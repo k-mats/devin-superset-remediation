@@ -46,7 +46,7 @@ const BY_REASON = {
   task_without_attempt: {
     next: 'wait',
     requires: ['intake'],
-    text: 'The task row exists but has no attempt yet, so dispatch cannot pick it up. The intake poller creates the missing attempt on its next pass over the labelled issue (a webhook delivery for the issue does the same).',
+    text: 'The task row exists but has no attempt yet, so dispatch cannot pick it up. The intake poller creates the missing attempt on its next pass if the issue is still open and carries the trigger label (a webhook delivery does the same); if the issue was closed or unlabelled since, nothing will pick this row up and it stays here until an operator re-labels the issue or removes the task.',
   },
   attempt_dispatching: {
     next: 'wait',
