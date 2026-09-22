@@ -83,8 +83,12 @@ volume) or `docker compose down -v` (delete all state).
 2. Within ~1 minute the task appears on the dashboard as `QUEUED`, then
    `RUNNING` once the Devin session is created. Follow the session through
    the link on the dashboard.
-3. When Devin finishes and opens a PR, the task moves to `PR_OPEN` /
-   `VERIFYING`.
+3. When Devin finishes with a `remediated` outcome and a PR, the task moves
+   to `VERIFYING` (`CI_PENDING` while the PR's own GitHub checks are still
+   running; `PR_OPEN` if no verification command has been proposed yet). A
+   `no_action` outcome ends the task as `NO_ACTION`; a `needs_human` outcome,
+   a missing/invalid structured output, or a PR that does not belong to the
+   task's repository and issue ends it as `NEEDS_HUMAN`.
 4. **Approve the verification** (always manual): click the **Verification**
    link on the task's dashboard row (it opens
    `/operator/attempts/<attempt id>/verification`), review the candidate
@@ -92,9 +96,12 @@ volume) or `docker compose down -v` (delete all state).
    `docker compose exec app node dist/cli/verification-approve.js --attempt <id> --spec-hash <sha256>`.
 5. On the next tracking pass the orchestrator clones the PR head, sets up the
    Superset repository, runs the approved command, and records the result.
-   The task ends as `VERIFIED` (success; the PR gets the `devin-verified`
-   label) or `VERIFICATION_FAILED`. Other terminal states are `NEEDS_HUMAN`,
-   `NO_ACTION`, `FAILED`, and `CANCELLED`.
+   On success the task becomes `VERIFIED` and the PR gets the
+   `devin-verified` label. On failure it shows `VERIFICATION_FAILED`; the
+   attempt stays open so you can rerun or propose a different command from
+   the same operator page, or wait for Devin/you to push a new PR head, which
+   restarts verification. Closing the PR unmerged, or merging it before it is
+   verified, ends the task as `NEEDS_HUMAN`.
 
 Superset setup inside the verification step can take a long time (up to the
 30 min `VERIFICATION_SETUP_TIMEOUT_MS` default). Watch progress with
@@ -136,9 +143,13 @@ internal use only.
 A task is successful only when its normalized state is **`VERIFIED`**: the
 current PR head has a recorded, passing, operator-approved independent
 verification. An open PR, a `remediated` structured output, or agent-reported
-passing tests are not success on their own. If the PR head moves, the task
-drops back to `PR_OPEN` until the new head is verified. State definitions are
-in [architecture.md](architecture.md#normalized-task-state).
+passing tests are not success on their own. `VERIFIED` is a property of the
+tracked PR head: if the head moves after verification, the task drops back to
+`PR_OPEN`, the `devin-verified` label is removed, and the new head must be
+verified again (via a rerun on the operator page). `NEEDS_HUMAN`,
+`NO_ACTION`, `FAILED`, and `CANCELLED` are terminal and never retried
+automatically. State definitions are in
+[architecture.md](architecture.md#normalized-task-state).
 
 ## Known limitations and trust boundaries
 
