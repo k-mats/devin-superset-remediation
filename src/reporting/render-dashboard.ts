@@ -3,6 +3,7 @@ import type {
   LedgerVerificationEvidence,
   Report,
   TaskBucket,
+  WindowCounts,
 } from './report-model.js';
 import {
   ALL_WORKERS_ENABLED,
@@ -241,7 +242,7 @@ export function renderDashboard(
       return `<tr><td>${issue}</td><td>${stateCell}</td><td>${outcome}</td><td>${String(current.attemptNumber)} / ${String(row.attemptCount)}</td><td>${session}</td><td>${pr}</td><td>${verificationLink}</td><td>${escapeHtml(formatTime(row.lastUpdatedAt))}</td></tr>${evidenceOpen}${evidence}</details></td></tr>`;
     })
     .join('');
-  const throughputMeasures: Array<[string, { last24h: number; last7d: number }, string]> = [
+  const throughputMeasures: Array<[string, WindowCounts, string]> = [
     ['Tasks discovered', report.throughput.tasksDiscovered, report.unit.throughput.tasksDiscovered],
     [
       'Tasks reached terminal',
@@ -254,9 +255,13 @@ export function renderDashboard(
   const throughputRows = throughputMeasures
     .map(
       ([label, counts, unit]) =>
-        `<tr><td>${escapeHtml(label)}</td><td>${String(counts.last24h)} ${unit}</td><td>${String(counts.last7d)} ${unit}</td></tr>`
+        `<tr><td>${escapeHtml(label)}</td><td>${String(counts.last24h)} ${unit}</td><td>${String(counts.last7d)} ${unit}</td><td>${String(counts.last30d)} ${unit}</td><td>${String(counts.total)} ${unit}</td></tr>`
     )
     .join('');
+  const acu = report.throughput.observedAcuTerminalAttempts;
+  const acuCell = (key: keyof WindowCounts): string =>
+    `<td>${formatAcus(acu.acus[key])} acus<small>observed ${String(acu.observedAttempts[key])} / eligible ${String(acu.eligibleAttempts[key])} attempts</small></td>`;
+  const acuRow = `<tr><td>Observed ACU — terminal attempts</td>${acuCell('last24h')}${acuCell('last7d')}${acuCell('last30d')}${acuCell('total')}</tr>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -303,8 +308,10 @@ ${renderStateTransitionsList()}
 <p class="muted">Evidence is shown for the current tracked PR head only; verification of earlier heads is listed as stale and is not evidence for the current head. Independent command verification and GitHub Checks are separate. A PR link is not evidence of success; success = VERIFIED only. ACU is shown only when observed (— = unknown, never 0).</p>
 <table><thead><tr><th>Issue</th><th>State</th><th>Outcome</th><th>Attempt</th><th>Devin session</th><th>PR</th><th>Verification</th><th>Last updated</th></tr></thead><tbody>${taskRows || '<tr><td colspan="8">No tasks</td></tr>'}</tbody></table>
 <p class="muted">Tasks without attempts: ${String(report.tasksWithoutAttempts)}</p>
-<section class="collapsible"><details data-persist="throughput"><summary><h2>Throughput</h2></summary>
-<table><thead><tr><th>Measure</th><th>24h</th><th>7d</th></tr></thead><tbody>${throughputRows}</tbody></table>
+<section class="collapsible"><details data-persist="throughput"><summary><h2>Throughput &amp; observed usage</h2></summary>
+<table><thead><tr><th>Measure</th><th>24h</th><th>7d</th><th>30d</th><th>Total</th></tr></thead><tbody>${throughputRows}${acuRow}</tbody></table>
+<p class="muted">Tasks discovered covers every persisted task, including tasks without an attempt. Task-level terminal and VERIFIED counts are unique tasks per window and include tasks later retried.</p>
+<p class="muted">Observed ACU is a lower bound: it sums the latest persisted provider snapshot (acus_consumed) for attempts that reached a terminal state in the window, attributed by terminal time, not ACU consumed during the window; it is not billing data. ACU observed for ${String(acu.observedAttempts.total)} / ${String(acu.eligibleAttempts.total)} eligible terminal attempts (all time). Attempts without a Devin session or without a terminal timestamp are not eligible.</p>
 <p class="muted">${String(report.summary.terminalWithoutTimestamp)} terminal task(s) have no persisted terminal timestamp and are excluded from terminal throughput / cycle time.</p>
 <p>Median intake→terminal cycle time (all historical terminal attempts, n=${String(report.cycleTime.sampleSize)}): ${escapeHtml(formatDuration(report.cycleTime.medianMsIntakeToTerminal))}</p>
 </details></section>

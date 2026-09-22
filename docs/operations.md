@@ -433,7 +433,13 @@ work in the configured `DATABASE_PATH` and include the runtime context
 (database path, environment, and configured intake repository). The report
 summary and dashboard cards count **tasks**. Throughput measures count
 discovered, terminal, and verified **tasks**, while the attempts-created
-measure counts **attempts**. The summary describes the current task state;
+measure counts **attempts**; each is reported over 24h / 7d / 30d / Total
+windows. Tasks discovered covers every persisted task, including tasks without
+an attempt. The observed-ACU measure sums the latest persisted provider
+snapshot (`acus_consumed`, unit `acus`) for attempts that reached a terminal
+state in the window — a lower bound, attributed by terminal time, not billing
+data; attempts without a Devin session or terminal timestamp are not eligible.
+The summary describes the current task state;
 throughput and cycle time describe historical events and never decrease
 retroactively when retries change the current attempt. Success is defined
 strictly as the normalized `VERIFIED` state; a PR URL or open PR is not

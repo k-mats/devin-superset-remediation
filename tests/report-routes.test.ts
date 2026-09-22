@@ -65,8 +65,30 @@ describe('report routes', () => {
       summary: { totalTasks: 1 },
       context: { databasePath: resolve('./test-database.db') },
     });
-    const reportPayload = JSON.parse(response.payload) as { ledger: unknown[] };
+    const reportPayload = JSON.parse(response.payload) as {
+      ledger: unknown[];
+      throughput: {
+        tasksDiscovered: { last30d: number; total: number };
+        observedAcuTerminalAttempts: {
+          semantics: string;
+          acus: { last30d: number | null; total: number | null };
+        };
+      };
+      unit: { throughput: { observedAcuTerminalAttempts: string } };
+    };
     expect(reportPayload.ledger).toHaveLength(1);
+    expect(reportPayload.throughput.observedAcuTerminalAttempts.semantics).toBe(
+      'observed_lower_bound'
+    );
+    expect(reportPayload.unit.throughput.observedAcuTerminalAttempts).toBe('acus');
+    expect(reportPayload.throughput.tasksDiscovered).toMatchObject({
+      last30d: 1,
+      total: 1,
+    });
+    expect(reportPayload.throughput.observedAcuTerminalAttempts.acus).toMatchObject({
+      last30d: null,
+      total: null,
+    });
     expect(response.payload).not.toContain('SECRET_SCRIPT_BODY');
     expect(response.payload).not.toContain('RAW_OUTPUT_SENTINEL');
   });
@@ -101,13 +123,13 @@ describe('report routes', () => {
     const response = await server.inject({ method: 'GET', url: '/dashboard' });
     const html = response.payload;
     const tasksAt = html.indexOf('<h2>Tasks (');
-    const throughputAt = html.indexOf('<h2>Throughput</h2>');
+    const throughputAt = html.indexOf('<h2>Throughput &amp; observed usage</h2>');
     expect(tasksAt).toBeGreaterThan(-1);
     expect(throughputAt).toBeGreaterThan(tasksAt);
     expect(html).not.toContain('Remediation evidence ledger');
     expect(html).not.toContain('data-persist="ledger"');
     expect(html).toContain(
-      '<details data-persist="throughput"><summary><h2>Throughput</h2></summary>'
+      '<details data-persist="throughput"><summary><h2>Throughput &amp; observed usage</h2></summary>'
     );
     expect(html).toContain('<details class="state-map-details" data-persist="state-map"><summary>');
     expect(html).not.toContain('<details class="state-map-details" data-persist="state-map" open');
@@ -132,6 +154,9 @@ describe('report routes', () => {
     expect(html).toMatch(/id="state-QUEUED" class="[^"]*occupied/);
     expect(html).toContain('<summary>Transitions (');
     expect(tasksTable).toContain('The dispatch poller');
+    expect(html).toContain('Observed ACU — terminal attempts');
+    expect(html).toContain('lower bound');
+    expect(html).toContain('<th>30d</th><th>Total</th>');
   });
 
   it('counts tasks without attempts on the state map', async () => {
