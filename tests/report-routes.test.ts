@@ -96,6 +96,27 @@ describe('report routes', () => {
     expect(response.payload).not.toContain('href="javascript:');
   });
 
+  it('orders Tasks first, collapses ledger and throughput, and explains each state', async () => {
+    const response = await server.inject({ method: 'GET', url: '/dashboard' });
+    const html = response.payload;
+    const tasksAt = html.indexOf('<h2>Tasks (');
+    const ledgerAt = html.indexOf('<h2>Remediation evidence ledger');
+    const throughputAt = html.indexOf('<h2>Throughput</h2>');
+    expect(tasksAt).toBeGreaterThan(-1);
+    expect(ledgerAt).toBeGreaterThan(tasksAt);
+    expect(throughputAt).toBeGreaterThan(ledgerAt);
+    expect(html).toContain('<details><summary><h2>Remediation evidence ledger');
+    expect(html).toContain('<details><summary><h2>Throughput</h2></summary>');
+    expect(html).toContain('<th>Verification</th>');
+    const tasksTable = html.slice(tasksAt, ledgerAt);
+    expect(tasksTable).toContain(
+      `<a href="/operator/attempts/${String(attemptId)}/verification">Verification</a>`
+    );
+    expect(tasksTable).toContain('Wait — automation is progressing');
+    expect(tasksTable).toContain('<summary>What now?</summary>');
+    expect(tasksTable).toContain('The dispatch poller');
+  });
+
   it('renders scripts only on the dedicated operator page', async () => {
     const response = await server.inject({
       method: 'GET',

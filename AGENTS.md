@@ -31,6 +31,7 @@ devin-superset-remediation/
 │   ├── reporting/
 │   │   ├── report-model.ts    # Task and attempt observability report (Issue #15, #24)
 │   │   ├── render-dashboard.ts # Server-rendered reporting dashboard (Issue #15, #24)
+│   │   ├── state-guidance.ts  # Per-state "what now" text and next-action class for the dashboard
 │   │   └── render-operator-verification.ts # Operator verification page (Issue #64)
 │   ├── cli/                  # Operator CLIs compiled to dist/cli (run in-container with node)
 │   │   ├── verification-show.ts     # Inspect an attempt's verification spec and history
